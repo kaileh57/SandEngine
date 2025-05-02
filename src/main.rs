@@ -1,6 +1,6 @@
 use pixels::{Error, Pixels, SurfaceTexture};
 use rand::prelude::*;
-use winit::dpi::LogicalSize;
+use winit::dpi::{LogicalSize, PhysicalPosition};
 use winit::event::{Event, VirtualKeyCode, ElementState, MouseButton};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::WindowBuilder;
@@ -19,6 +19,7 @@ const SAND: u8 = 1;
 // Colors
 const C_EMPTY: [u8; 4] = [0, 0, 0, 255];
 const C_SAND: [u8; 4] = [194, 178, 128, 255];
+const C_BORDER: [u8; 4] = [100, 100, 100, 255];
 
 struct SandSimulation {
     // Use a flat vector for better cache locality
@@ -152,8 +153,17 @@ impl SandSimulation {
 
     fn draw(&self, frame: &mut [u8]) {
         for (i, pixel) in frame.chunks_exact_mut(4).enumerate() {
-            let x = (i % WIDTH as usize) / CELL_SIZE;
-            let y = (i / WIDTH as usize) / CELL_SIZE;
+            let screen_x = i % WIDTH as usize;
+            let screen_y = i / WIDTH as usize;
+            let x = screen_x / CELL_SIZE;
+            let y = screen_y / CELL_SIZE;
+            
+            // Draw border (1 pixel width)
+            if screen_x < CELL_SIZE || screen_x >= WIDTH as usize - CELL_SIZE || 
+               screen_y < CELL_SIZE || screen_y >= HEIGHT as usize - CELL_SIZE {
+                pixel.copy_from_slice(&C_BORDER);
+                continue;
+            }
             
             let color = match self.get(x, y) {
                 SAND => C_SAND,
@@ -189,7 +199,7 @@ fn main() -> Result<(), Error> {
     let window = WindowBuilder::new()
         .with_title("Sand Simulation")
         .with_inner_size(LogicalSize::new(WIDTH, HEIGHT))
-        .with_resizable(false)
+        .with_resizable(true)
         .build(&event_loop)
         .unwrap();
 
@@ -201,6 +211,7 @@ fn main() -> Result<(), Error> {
 
     let mut simulation = SandSimulation::new();
     let mut is_drawing = false;
+    let mut last_cursor_pos = (0, 0);
     
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
@@ -209,6 +220,12 @@ fn main() -> Result<(), Error> {
             Event::WindowEvent { event, .. } => match event {
                 WindowEvent::CloseRequested => {
                     *control_flow = ControlFlow::Exit;
+                },
+                WindowEvent::Resized(new_size) => {
+                    if let Err(err) = pixels.resize_surface(new_size.width, new_size.height) {
+                        eprintln!("pixels.resize_surface error: {err}");
+                        *control_flow = ControlFlow::Exit;
+                    }
                 },
                 WindowEvent::KeyboardInput { input, .. } => {
                     if let Some(key_code) = input.virtual_keycode {
@@ -226,13 +243,33 @@ fn main() -> Result<(), Error> {
                 WindowEvent::MouseInput { state, button, .. } => {
                     if button == MouseButton::Left {
                         is_drawing = state == ElementState::Pressed;
+                        // When pressing, immediately add sand at the last known position
+                        if is_drawing {
+                            simulation.add_sand(last_cursor_pos.0, last_cursor_pos.1, simulation.brush_size);
+                        }
                     }
                 },
                 WindowEvent::CursorMoved { position, .. } => {
-                    if is_drawing {
-                        let x = (position.x as usize / CELL_SIZE).min(GRID_WIDTH - 1);
-                        let y = (position.y as usize / CELL_SIZE).min(GRID_HEIGHT - 1);
-                        simulation.add_sand(x, y, simulation.brush_size);
+                    // Convert PhysicalPosition<f64> to (f32, f32) for window_pos_to_pixel
+                    let physical_pos = (position.x as f32, position.y as f32);
+                    
+                    // Use pixels helper function to map window physical pos to pixel buffer pos
+                    match pixels.window_pos_to_pixel(physical_pos) {
+                        Ok((pixel_x, pixel_y)) => {
+                            // Map buffer pixel position to grid cell
+                            let x = (pixel_x / CELL_SIZE).min(GRID_WIDTH - 1);
+                            let y = (pixel_y / CELL_SIZE).min(GRID_HEIGHT - 1);
+
+                            last_cursor_pos = (x, y);
+
+                            if is_drawing {
+                                simulation.add_sand(x, y, simulation.brush_size);
+                            }
+                        }
+                        Err(_) => {
+                            // Cursor might be outside the window's drawing surface,
+                            // ignore this position.
+                        }
                     }
                 },
                 WindowEvent::MouseWheel { delta, .. } => {
@@ -250,6 +287,11 @@ fn main() -> Result<(), Error> {
                 _ => (),
             },
             Event::RedrawRequested(_) => {
+                // Add sand continuously while drawing, even if mouse isn't moving
+                if is_drawing {
+                    simulation.add_sand(last_cursor_pos.0, last_cursor_pos.1, simulation.brush_size);
+                }
+                
                 simulation.update();
                 simulation.draw(pixels.frame_mut());
                 if let Err(err) = pixels.render() {
