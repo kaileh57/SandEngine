@@ -1,0 +1,9 @@
+[package]
+name = "sand_engine"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+winit = "0.28"
+pixels = "0.13.0"
+rand = "0.8.5"
