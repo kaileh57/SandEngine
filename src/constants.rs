@@ -30,6 +30,8 @@ pub const C_UI_CLEAR_BUTTON_BORDER: [u8; 4] = [220, 100, 100, 255];
 
 // Temperature constants
 pub const AMBIENT_TEMP: f32 = 20.0;
+pub const FIRE_START_TEMP: f32 = 1000.0;
+pub const LAVA_START_TEMP: f32 = 800.0;
 pub const MAX_TEMP: f32 = 3000.0;
 pub const COOLING_RATE: f32 = 0.005;
 
@@ -162,5 +164,39 @@ pub fn draw_char(frame: &mut [u8], x: usize, y: usize, ch: char, color: [u8; 4])
 pub fn draw_text(frame: &mut [u8], x: usize, y: usize, text: &str, color: [u8; 4]) {
     for (i, ch) in text.chars().enumerate() {
         draw_char(frame, x + i * 8, y, ch, color);
+    }
+}
+
+// --- Fast Random Number Generator ---
+pub struct FastRand {
+    seed: u32,
+}
+
+impl FastRand {
+    pub fn new(seed: u32) -> Self {
+        Self { seed: if seed == 0 { 1 } else { seed } } // Ensure seed is never 0
+    }
+
+    pub fn rand(&mut self) -> u32 {
+        // Xorshift algorithm
+        let mut x = self.seed;
+        x ^= x << 13;
+        x ^= x >> 17;
+        x ^= x << 5;
+        self.seed = x;
+        x
+    }
+
+    pub fn rand_range(&mut self, min: u32, max: u32) -> u32 {
+        if min >= max {
+            return min;
+        }
+        min + (self.rand() % (max - min + 1))
+    }
+
+    pub fn rand_bool(&mut self, probability: f32) -> bool {
+        // Scale probability to u32 range for comparison
+        let threshold = (probability.max(0.0).min(1.0) * (u32::MAX as f32)) as u32;
+        self.rand() < threshold
     }
 }

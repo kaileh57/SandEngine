@@ -10,11 +10,10 @@ use winit::event::{Event, VirtualKeyCode, ElementState, MouseButton};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::WindowBuilder;
 use winit::event::WindowEvent;
-use winit::dpi::PhysicalPosition;
 
 use crate::simulation::SandSimulation;
 use crate::ui::UI;
-use crate::constants::{GRID_WIDTH, GRID_HEIGHT, CELL_SIZE, WIDTH, HEIGHT, UI_WIDTH, WINDOW_WIDTH};
+use crate::constants::{GRID_WIDTH, GRID_HEIGHT, CELL_SIZE, WIDTH, HEIGHT, WINDOW_WIDTH};
 use crate::material::MaterialType;
 
 fn main() -> Result<(), Error> {
@@ -160,10 +159,14 @@ fn main() -> Result<(), Error> {
                 _ => (),
             },
             Event::RedrawRequested(_) => {
-                // Add material continuously while drawing, even if mouse isn't moving
-                if is_drawing {
-                    simulation.add_material(last_cursor_pos.0, last_cursor_pos.1, simulation.brush_size, simulation.current_material);
-                }
+                // Add material continuously while drawing, ONLY if mouse is moving
+                // Remove this line or comment it out to fix cursor duplication
+                // if is_drawing {
+                //     simulation.add_material(last_cursor_pos.0, last_cursor_pos.1, simulation.brush_size, simulation.current_material);
+                // }
+                
+                // Update FPS counter
+                ui.update_fps();
                 
                 simulation.update();
                 

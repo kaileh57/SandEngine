@@ -70,66 +70,74 @@ impl MaterialType {
         match self {
             MaterialType::Empty => MaterialProperties {
                 name: "Empty",
-                density: 0.0,
-                flammable: false,
+                density: 0.0,        // Air
                 viscosity: 0.0,
                 has_gravity: false,
+                conductivity: 0.1,  // Air conductivity
+                flammable: false,
                 color: C_EMPTY,
             },
             MaterialType::Sand => MaterialProperties {
                 name: "Sand",
                 density: 5.0,
-                flammable: false,
                 viscosity: 0.0,
                 has_gravity: true,
+                conductivity: 0.3,
+                flammable: false,
                 color: C_SAND,
             },
             MaterialType::Water => MaterialProperties {
                 name: "Water",
                 density: 3.0,
-                flammable: false,
-                viscosity: 1.0,
+                viscosity: 1.0,     // Arbitrary viscosity for fluid spread
                 has_gravity: true,
+                conductivity: 0.6,
+                flammable: false,
                 color: C_WATER,
             },
             MaterialType::Stone => MaterialProperties {
                 name: "Stone",
                 density: 10.0,
-                flammable: false,
                 viscosity: 0.0,
                 has_gravity: true,
+                conductivity: 0.2,
+                flammable: false,
                 color: C_STONE,
             },
             MaterialType::Plant => MaterialProperties {
                 name: "Plant",
-                density: 0.1,
-                flammable: true,
+                density: 0.1,       // Lightweight, doesn't fall easily
                 viscosity: 0.0,
                 has_gravity: false,
+                conductivity: 0.1,
+                flammable: true,
                 color: C_PLANT,
             },
             MaterialType::Fire => MaterialProperties {
                 name: "Fire",
-                density: -2.0,
-                flammable: false,
+                density: -2.0,      // Rises
                 viscosity: 0.0,
-                has_gravity: false,
+                has_gravity: false, // Special movement logic
+                conductivity: 0.8,  // High heat transfer
+                flammable: false,    // Can't catch fire itself
                 color: C_FIRE,
             },
             MaterialType::Lava => MaterialProperties {
                 name: "Lava",
                 density: 8.0,
-                flammable: false,
-                viscosity: 5.0,
+                viscosity: 5.0,     // Slow spread
                 has_gravity: true,
+                conductivity: 0.9,  // Very high heat transfer
+                flammable: false,
                 color: C_LAVA,
             },
             MaterialType::Eraser => MaterialProperties {
                 name: "Eraser",
                 density: 0.0,
-                flammable: false,
                 viscosity: 0.0,
                 has_gravity: false,
+                conductivity: 0.0,
+                flammable: false,
                 color: C_ERASER,
             },
         }
@@ -140,8 +148,9 @@ impl MaterialType {
 pub struct MaterialProperties {
     pub name: &'static str,
     pub density: f32,
-    pub flammable: bool,
     pub viscosity: f32,
     pub has_gravity: bool,
+    pub conductivity: f32, // Thermal conductivity
+    pub flammable: bool,
     pub color: [u8; 4],
 }

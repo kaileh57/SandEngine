@@ -2,10 +2,16 @@
 use crate::constants::*;
 use crate::material::MaterialType;
 use crate::simulation::SandSimulation;
+use std::time::{Instant, Duration};
+use std::collections::VecDeque;
 
 pub struct UI {
     // UI state
     button_hover: Option<MaterialType>,
+    // FPS tracking
+    frame_times: VecDeque<Duration>,
+    last_frame_time: Instant,
+    current_fps: f64,
 }
 
 struct UIButton {
@@ -36,6 +42,9 @@ impl UI {
     pub fn new() -> Self {
         Self {
             button_hover: None,
+            frame_times: VecDeque::with_capacity(100), // Store up to 100 frame times
+            last_frame_time: Instant::now(),
+            current_fps: 0.0,
         }
     }
 
@@ -97,6 +106,10 @@ impl UI {
                 }
             }
         }
+
+        // Draw framerate counter in top-left corner
+        let fps_text = format!("FPS: {:.1}", self.current_fps);
+        draw_text(frame, 5, 5, &fps_text, C_UI_TEXT);
 
         // Draw title
         draw_text(frame, WIDTH as usize + 50, 15, "Sand Simulation", C_UI_TEXT);
@@ -399,5 +412,28 @@ impl UI {
         
         // Button text
         draw_text(frame, WIDTH as usize + 75, button_y + 10, "CLEAR", C_UI_TEXT);
+    }
+
+    pub fn update_fps(&mut self) {
+        let now = Instant::now();
+        let frame_time = now.duration_since(self.last_frame_time);
+        self.last_frame_time = now;
+        
+        // Add the new frame time
+        self.frame_times.push_back(frame_time);
+        
+        // Remove old frame times if we have too many
+        while self.frame_times.len() > 100 {
+            self.frame_times.pop_front();
+        }
+        
+        // Calculate average FPS from the stored frame times
+        if !self.frame_times.is_empty() {
+            let total_time: Duration = self.frame_times.iter().sum();
+            let avg_frame_time = total_time.as_secs_f64() / self.frame_times.len() as f64;
+            if avg_frame_time > 0.0 {
+                self.current_fps = 1.0 / avg_frame_time;
+            }
+        }
     }
 }
