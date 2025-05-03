@@ -1,8 +1,10 @@
 // File: main.rs
 mod simulation;
 mod ui;
+mod ui_components;
 mod constants;
 mod material;
+mod text_renderer;
 
 use pixels::{Error, Pixels, SurfaceTexture};
 use winit::dpi::LogicalSize;
@@ -10,7 +12,6 @@ use winit::event::{Event, VirtualKeyCode, ElementState, MouseButton};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::WindowBuilder;
 use winit::event::WindowEvent;
-use winit::dpi::PhysicalPosition;
 
 use crate::simulation::SandSimulation;
 use crate::ui::UI;
@@ -54,35 +55,37 @@ fn main() -> Result<(), Error> {
                 },
                 WindowEvent::KeyboardInput { input, .. } => {
                     if let Some(key_code) = input.virtual_keycode {
-                        match key_code {
-                            VirtualKeyCode::Escape => {
-                                *control_flow = ControlFlow::Exit;
-                            },
-                            VirtualKeyCode::C => {
-                                simulation.clear();
-                            },
-                            VirtualKeyCode::Key1 => {
-                                simulation.current_material = MaterialType::Sand;
-                            },
-                            VirtualKeyCode::Key2 => {
-                                simulation.current_material = MaterialType::Water;
-                            },
-                            VirtualKeyCode::Key3 => {
-                                simulation.current_material = MaterialType::Stone;
-                            },
-                            VirtualKeyCode::Key4 => {
-                                simulation.current_material = MaterialType::Plant;
-                            },
-                            VirtualKeyCode::Key5 => {
-                                simulation.current_material = MaterialType::Fire;
-                            },
-                            VirtualKeyCode::Key6 => {
-                                simulation.current_material = MaterialType::Lava;
-                            },
-                            VirtualKeyCode::E => {
-                                simulation.current_material = MaterialType::Eraser;
-                            },
-                            _ => (),
+                        if input.state == ElementState::Pressed {
+                            match key_code {
+                                VirtualKeyCode::Escape => {
+                                    *control_flow = ControlFlow::Exit;
+                                },
+                                VirtualKeyCode::C => {
+                                    simulation.clear();
+                                },
+                                VirtualKeyCode::Key1 => {
+                                    simulation.current_material = MaterialType::Sand;
+                                },
+                                VirtualKeyCode::Key2 => {
+                                    simulation.current_material = MaterialType::Water;
+                                },
+                                VirtualKeyCode::Key3 => {
+                                    simulation.current_material = MaterialType::Stone;
+                                },
+                                VirtualKeyCode::Key4 => {
+                                    simulation.current_material = MaterialType::Plant;
+                                },
+                                VirtualKeyCode::Key5 => {
+                                    simulation.current_material = MaterialType::Fire;
+                                },
+                                VirtualKeyCode::Key6 => {
+                                    simulation.current_material = MaterialType::Lava;
+                                },
+                                VirtualKeyCode::E => {
+                                    simulation.current_material = MaterialType::Eraser;
+                                },
+                                _ => (),
+                            }
                         }
                     }
                 },
@@ -149,9 +152,9 @@ fn main() -> Result<(), Error> {
                     match delta {
                         winit::event::MouseScrollDelta::LineDelta(_, y) => {
                             if y > 0.0 {
-                                simulation.brush_size = (simulation.brush_size + 1).min(20);
+                                ui.update_brush_size(&mut simulation, 1);
                             } else if y < 0.0 {
-                                simulation.brush_size = simulation.brush_size.saturating_sub(1);
+                                ui.update_brush_size(&mut simulation, -1);
                             }
                         },
                         _ => (),

@@ -1,7 +1,7 @@
 // File: simulation.rs
 use rand::prelude::*;
 use crate::constants::*;
-use crate::material::{MaterialType, MaterialProperties};
+use crate::material::MaterialType;
 
 pub struct SandSimulation {
     // Use a flat vector for better cache locality
@@ -15,7 +15,7 @@ pub struct SandSimulation {
 
 impl SandSimulation {
     pub fn new() -> Self {
-        let mut temp = vec![AMBIENT_TEMP; GRID_WIDTH * GRID_HEIGHT];
+        let temp = vec![AMBIENT_TEMP; GRID_WIDTH * GRID_HEIGHT];
         
         Self {
             grid: vec![0; GRID_WIDTH * GRID_HEIGHT],
@@ -656,8 +656,8 @@ impl SandSimulation {
         for y in 0..HEIGHT as usize {
             for x in 0..WIDTH as usize {
                 // Draw border (1 pixel width)
-                if x < CELL_SIZE || x >= WIDTH as usize - CELL_SIZE || 
-                   y < CELL_SIZE || y >= HEIGHT as usize - CELL_SIZE {
+                if x < 1 || x >= WIDTH as usize - 1 || 
+                   y < 1 || y >= HEIGHT as usize - 1 {
                     let idx = (y * WINDOW_WIDTH as usize + x) * 4;
                     if idx + 3 < frame.len() {
                         frame[idx..idx+4].copy_from_slice(&C_BORDER);
