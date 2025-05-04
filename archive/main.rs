@@ -1,11 +1,4 @@
 // File: main.rs
-mod simulation;
-mod ui;
-mod ui_components;
-mod constants;
-mod material;
-mod text_renderer;
-
 use pixels::{Error, Pixels, SurfaceTexture};
 use winit::dpi::LogicalSize;
 use winit::event::{Event, VirtualKeyCode, ElementState, MouseButton};
@@ -13,10 +6,15 @@ use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::WindowBuilder;
 use winit::event::WindowEvent;
 
-use crate::simulation::SandSimulation;
-use crate::ui::UI;
-use crate::constants::{GRID_WIDTH, GRID_HEIGHT, CELL_SIZE, WIDTH, HEIGHT, UI_WIDTH, WINDOW_WIDTH};
-use crate::material::MaterialType;
+// Import from our library
+mod engine;
+mod game;
+use engine::simulation::SandSimulation;
+use engine::material::MaterialType;
+use engine::constants::{GRID_WIDTH, GRID_HEIGHT, CELL_SIZE, WIDTH, HEIGHT};
+use game::constants::{UI_WIDTH, WINDOW_WIDTH};
+use game::ui::UI;
+use game::material_renderer::MaterialRenderer;
 
 fn main() -> Result<(), Error> {
     let event_loop = EventLoop::new();
@@ -35,9 +33,11 @@ fn main() -> Result<(), Error> {
 
     let mut simulation = SandSimulation::new();
     let mut ui = UI::new();
+    let material_renderer = MaterialRenderer::new();
     let mut is_drawing = false;
     let mut last_cursor_pos = (0, 0);
     let mut last_screen_pos = (0.0, 0.0); // Track raw screen coordinates
+    let simulation_speed = 3; // Simulation speed multiplier (2-3x faster)
     
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
@@ -168,18 +168,21 @@ fn main() -> Result<(), Error> {
                     simulation.add_material(last_cursor_pos.0, last_cursor_pos.1, simulation.brush_size, simulation.current_material);
                 }
                 
-                simulation.update();
+                // Run simulation multiple times per frame for increased speed
+                for _ in 0..simulation_speed {
+                    simulation.update();
+                }
                 
                 // Update the frame
                 let frame = pixels.frame_mut();
                 
                 // First clear the frame
                 for pixel in frame.chunks_exact_mut(4) {
-                    pixel.copy_from_slice(&constants::C_EMPTY);
+                    pixel.copy_from_slice(&game::constants::C_EMPTY);
                 }
                 
                 // Draw the simulation
-                simulation.draw(frame);
+                material_renderer.draw(&simulation, frame);
                 
                 // Draw the UI on top
                 ui.draw(frame, &simulation);
