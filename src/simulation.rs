@@ -30,8 +30,11 @@ impl SandSimulation {
         let grid_size = GRID_WIDTH * GRID_HEIGHT;
         let temp = vec![AMBIENT_TEMP; grid_size];
         
-        // Pre-allocate column order array
-        let mut column_order: Vec<usize> = (0..GRID_WIDTH).collect();
+        // Pre-allocate column order array with enough space
+        let mut column_order: Vec<usize> = Vec::with_capacity(GRID_WIDTH);
+        for i in 0..GRID_WIDTH {
+            column_order.push(i);
+        }
         
         Self {
             grid: vec![0; grid_size],
@@ -198,7 +201,12 @@ impl SandSimulation {
         // Shuffle columns in active range only
         let active_width = self.max_active_x - self.min_active_x + 1;
         if active_width > 0 {
-            // Only shuffle the active columns
+            // Reset column order for the current active width
+            for i in 0..active_width {
+                self.column_order[i] = i;
+            }
+            
+            // Now shuffle the active columns
             let mut rng = rand::thread_rng();
             for i in 0..active_width {
                 let j = rng.gen_range(i..active_width);
@@ -1608,19 +1616,10 @@ impl SandSimulation {
     }
 
     pub fn draw(&self, frame: &mut [u8]) {
-        // Only draw active area plus a small buffer
-        let y_start = self.min_active_y.saturating_sub(2);
-        let y_end = (self.max_active_y + 2).min(GRID_HEIGHT);
-        let x_start = self.min_active_x.saturating_sub(2);
-        let x_end = (self.max_active_x + 2).min(GRID_WIDTH);
-        
-        for y in y_start..y_end {
-            for x in x_start..x_end {
+        // Always draw the full grid to avoid striping artifacts
+        for y in 0..GRID_HEIGHT {
+            for x in 0..GRID_WIDTH {
                 let material = self.get(x, y);
-                if material == MaterialType::Empty {
-                    continue; // Skip empty cells
-                }
-                
                 let props = material.get_properties();
                 let base_color = props.color;
                 
