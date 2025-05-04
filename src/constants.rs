@@ -32,3 +32,35 @@ pub const C_UI_CLEAR_BUTTON_BORDER: [u8; 4] = [220, 100, 100, 255];
 pub const AMBIENT_TEMP: f32 = 20.0;
 pub const MAX_TEMP: f32 = 3000.0;
 pub const COOLING_RATE: f32 = 0.005;
+
+// Physics constants
+pub const GRAVITY: f32 = 0.4;  // Base gravity acceleration
+pub const MAX_VELOCITY: f32 = 3.0;  // Maximum fall speed for most particles
+
+// Sand physics
+pub const SAND_GRAVITY: f32 = 0.4;  // Sand falls at normal gravity
+pub const SAND_MAX_VELOCITY: f32 = 3.0;  // Sand has normal terminal velocity
+
+// Water physics
+pub const WATER_GRAVITY: f32 = 0.3;  // Water accelerates a bit slower than sand
+pub const WATER_MAX_VELOCITY: f32 = 2.5;  // Water flows a bit slower at max
+pub const WATER_VISCOSITY: f32 = 0.05;  // Water has low viscosity (flows easily)
+
+// Lava physics
+pub const LAVA_GRAVITY: f32 = 0.2;  // Lava is more viscous, falls slower
+pub const LAVA_MAX_VELOCITY: f32 = 1.5;  // Lava has lower terminal velocity
+pub const LAVA_VISCOSITY: f32 = 0.4;  // Lava has high viscosity (flows slowly)
+
+// Fire physics
+pub const FIRE_UPDRAFT: f32 = 0.3;  // Fire rises
+pub const FIRE_MAX_VELOCITY: f32 = 2.0;  // Maximum updraft speed
+
+// Stone physics - very rigid
+pub const STONE_GRAVITY: f32 = 0.5;  // Stone falls faster than sand
+pub const STONE_MAX_VELOCITY: f32 = 3.5;  // Stone has higher terminal velocity
+pub const STONE_RIGIDITY: f32 = 0.9;  // Stone has high rigidity (rarely flows)
+
+// Plant physics - somewhat rigid but organic
+pub const PLANT_GRAVITY: f32 = 0.35;  // Plant falls a bit slower than sand
+pub const PLANT_MAX_VELOCITY: f32 = 2.8;  // Plant has moderate terminal velocity
+pub const PLANT_RIGIDITY: f32 = 0.6;  // Plant has moderate rigidity
