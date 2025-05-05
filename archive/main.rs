@@ -1,3 +1,4 @@
+// File: main.rs
 mod simulation;
 mod ui;
 mod ui_components;
@@ -14,7 +15,7 @@ use winit::event::WindowEvent;
 
 use crate::simulation::SandSimulation;
 use crate::ui::UI;
-use crate::constants::{GRID_WIDTH, GRID_HEIGHT, CELL_SIZE, WIDTH, HEIGHT, WINDOW_WIDTH};
+use crate::constants::{GRID_WIDTH, GRID_HEIGHT, CELL_SIZE, WIDTH, HEIGHT, UI_WIDTH, WINDOW_WIDTH};
 use crate::material::MaterialType;
 
 fn main() -> Result<(), Error> {

@@ -1,3 +1,4 @@
+// File: simulation.rs
 use rand::prelude::*;
 use crate::constants::*;
 use crate::material::MaterialType;
@@ -13,19 +14,15 @@ pub struct SandSimulation {
     pub current_material: MaterialType, // Current selected material
     pub cursor_pos: (usize, usize), // Store cursor position for UI
     
-    // Active cell tracking (critical for performance)
+    // Optimization: Pre-allocated arrays
+    column_order: Vec<usize>,
     active_cells: Vec<(usize, usize)>,
-    next_active_cells: Vec<(usize, usize)>,
     
     // Optimization: Bounds tracking
     min_active_x: usize,
     max_active_x: usize,
     min_active_y: usize,
     max_active_y: usize,
-    
-    // Settings that control simulation complexity
-    do_temperature_diffusion: bool,
-    max_active_cells: usize,
 }
 
 impl SandSimulation {
@@ -33,9 +30,11 @@ impl SandSimulation {
         let grid_size = GRID_WIDTH * GRID_HEIGHT;
         let temp = vec![AMBIENT_TEMP; grid_size];
         
-        // Allocate approximately 25% of grid size for active cells
-        // This is a balance between memory usage and avoiding reallocations
-        let active_capacity = grid_size / 4;
+        // Pre-allocate column order array with enough space
+        let mut column_order: Vec<usize> = Vec::with_capacity(GRID_WIDTH);
+        for i in 0..GRID_WIDTH {
+            column_order.push(i);
+        }
         
         Self {
             grid: vec![0; grid_size],
@@ -46,14 +45,12 @@ impl SandSimulation {
             brush_size: 3,
             current_material: MaterialType::Sand,
             cursor_pos: (0, 0),
-            active_cells: Vec::with_capacity(active_capacity),
-            next_active_cells: Vec::with_capacity(active_capacity),
+            column_order,
+            active_cells: Vec::with_capacity(grid_size),
             min_active_x: GRID_WIDTH,
             max_active_x: 0,
             min_active_y: GRID_HEIGHT,
             max_active_y: 0,
-            do_temperature_diffusion: false,  // Turn off by default for performance
-            max_active_cells: 50000,          // Limit active cells for performance
         }
     }
 
@@ -77,71 +74,16 @@ impl SandSimulation {
     pub fn set(&mut self, x: usize, y: usize, value: MaterialType) {
         if x < GRID_WIDTH && y < GRID_HEIGHT {
             let idx = Self::get_index(x, y);
-            let old_value = unsafe { *self.grid.get_unchecked(idx) };
-            
             unsafe {
                 *self.grid.get_unchecked_mut(idx) = value.to_u8();
             }
             
-            // Only update active bounds and add to next_active_cells if the value changed
-            if old_value != value.to_u8() {
-                // Update active bounds
-                if value != MaterialType::Empty {
-                    self.min_active_x = self.min_active_x.min(x);
-                    self.max_active_x = self.max_active_x.max(x);
-                    self.min_active_y = self.min_active_y.min(y);
-                    self.max_active_y = self.max_active_y.max(y);
-                    
-                    // Add to next active cells if not empty
-                    if self.next_active_cells.len() < self.max_active_cells {
-                        self.next_active_cells.push((x, y));
-                    }
-                    
-                    // Also add neighbors to next active cells
-                    self.add_neighbors_to_active(x, y);
-                }
-            }
-        }
-    }
-    
-    #[inline(always)]
-    fn add_neighbors_to_active(&mut self, x: usize, y: usize) {
-        if self.next_active_cells.len() >= self.max_active_cells {
-            return;
-        }
-
-        // Add neighbors in a cross pattern for better flow propagation
-        // Center + direct neighbors
-        let neighbors = [
-            (x, y),                          // Center (ensure it stays active)
-            (x, y.saturating_sub(1)),        // Above
-            (x.saturating_sub(1), y),        // Left
-            (x + 1, y.min(GRID_WIDTH-1)),    // Right 
-            (x, y + 1.min(GRID_HEIGHT-1)),   // Below
-            
-            // Add diagonals for better flow
-            (x.saturating_sub(1), y.saturating_sub(1)),           // Top-left
-            (x + 1.min(GRID_WIDTH-1), y.saturating_sub(1)),       // Top-right
-            (x.saturating_sub(1), y + 1.min(GRID_HEIGHT-1)),      // Bottom-left
-            (x + 1.min(GRID_WIDTH-1), y + 1.min(GRID_HEIGHT-1)),  // Bottom-right
-            
-            // Extended horizontal flow (important for liquids)
-            (x.saturating_sub(2), y),                             // Further left
-            (x + 2.min(GRID_WIDTH-1), y),                         // Further right
-        ];
-        
-        for &(nx, ny) in neighbors.iter() {
-            if nx < GRID_WIDTH && ny < GRID_HEIGHT {
-                // Only add if the cell contains a material to avoid wasting active slots
-                let idx = Self::get_index(nx, ny);
-                let has_material = unsafe { *self.grid.get_unchecked(idx) != 0 };
-                
-                if self.next_active_cells.len() < self.max_active_cells && 
-                   (has_material || nx == x || ny == y) { // Always add immediate neighbors
-                    self.next_active_cells.push((nx, ny));
-                } else if self.next_active_cells.len() >= self.max_active_cells {
-                    break;
-                }
+            // Update active bounds
+            if value != MaterialType::Empty {
+                self.min_active_x = self.min_active_x.min(x);
+                self.max_active_x = self.max_active_x.max(x);
+                self.min_active_y = self.min_active_y.min(y);
+                self.max_active_y = self.max_active_y.max(y);
             }
         }
     }
@@ -237,10 +179,6 @@ impl SandSimulation {
         self.vel_x.fill(0.0);
         self.vel_y.fill(0.0);
         
-        // Clear active cells tracking
-        self.active_cells.clear();
-        self.next_active_cells.clear();
-        
         // Reset active bounds
         self.min_active_x = GRID_WIDTH;
         self.max_active_x = 0;
@@ -252,191 +190,193 @@ impl SandSimulation {
         // Reset update flags efficiently
         self.updated.fill(false);
         
-        // Remove duplicates in next_active_cells before swap
-        if self.next_active_cells.len() > 1000 {
-            // Only deduplicate when there are many active cells
-            self.next_active_cells.sort_unstable();
-            self.next_active_cells.dedup();
-        }
-        
-        // Move next_active_cells to active_cells
-        std::mem::swap(&mut self.active_cells, &mut self.next_active_cells);
-        self.next_active_cells.clear();
-        
-        // Early exit if no active cells
-        if self.active_cells.is_empty() {
+        // Early exit if no active area
+        if self.min_active_x > self.max_active_x || self.min_active_y > self.max_active_y {
             return;
         }
         
-        // Optional: Update temperature selectively (only on active cells)
-        if self.do_temperature_diffusion {
-            self.update_temperatures_optimized();
-        }
+        // Update temperature first (optimized)
+        self.update_temperatures_optimized();
         
-        // Shuffle active cells for better visual effect - only shuffle a few cells
-        // for performance, just enough to break patterns
-        if self.active_cells.len() > 10 {
+        // Shuffle columns in active range only
+        let active_width = self.max_active_x - self.min_active_x + 1;
+        if active_width > 0 {
+            // Reset column order for the current active width
+            for i in 0..active_width {
+                self.column_order[i] = i;
+            }
+            
+            // Now shuffle the active columns
             let mut rng = rand::thread_rng();
-            for i in 0..10.min(self.active_cells.len()) {
-                let j = rng.gen_range(0..self.active_cells.len());
-                self.active_cells.swap(i, j);
+            for i in 0..active_width {
+                let j = rng.gen_range(i..active_width);
+                self.column_order.swap(i, j);
+            }
+            
+            // Process from bottom to top, but only active area
+            for y in (self.min_active_y.saturating_sub(1)..=self.max_active_y.saturating_add(1).min(GRID_HEIGHT - 1)).rev() {
+                for i in 0..active_width {
+                    let x = self.min_active_x + self.column_order[i];
+                    
+                    if x >= GRID_WIDTH {
+                        continue;
+                    }
+                    
+                    let idx = Self::get_index(x, y);
+                    
+                    // Early skip for empty cells
+                    unsafe {
+                        let material_u8 = *self.grid.get_unchecked(idx);
+                        if material_u8 == 0 {
+                            continue;
+                        }
+                        
+                        if *self.updated.get_unchecked(idx) {
+                            continue;
+                        }
+                        
+                        let material = MaterialType::from_u8(material_u8);
+                        match material {
+                            MaterialType::Sand => self.update_sand(x, y),
+                            MaterialType::Water => self.update_water(x, y),
+                            MaterialType::Fire => self.update_fire(x, y),
+                            MaterialType::Lava => self.update_lava(x, y),
+                            MaterialType::Stone => self.update_stone(x, y),
+                            MaterialType::Plant => self.update_plant(x, y),
+                            _ => {},
+                        }
+                    }
+                }
             }
         }
         
-        // Process active cells
-        let cell_count = self.active_cells.len();
-        for i in (0..cell_count).rev() {
-            let (x, y) = self.active_cells[i];
-            
-            // Skip if already updated or out of bounds
-            if x >= GRID_WIDTH || y >= GRID_HEIGHT || self.is_updated(x, y) {
-                continue;
-            }
-            
-            let idx = Self::get_index(x, y);
-            
-            // Early skip for empty cells
-            unsafe {
-                let material_u8 = *self.grid.get_unchecked(idx);
-                if material_u8 == 0 {
-                    continue;
-                }
-                
-                let material = MaterialType::from_u8(material_u8);
-                match material {
-                    MaterialType::Sand => self.update_sand(x, y),
-                    MaterialType::Water => self.update_water(x, y),
-                    MaterialType::Fire => self.update_fire(x, y),
-                    MaterialType::Lava => self.update_lava(x, y),
-                    MaterialType::Stone => self.update_stone(x, y),
-                    MaterialType::Plant => self.update_plant(x, y),
-                    _ => {},
-                }
-            }
-        }
-        
-        // If next_active_cells is empty, we need to scan the grid to find active cells
-        // This is a fallback in case the active cell tracking gets out of sync
-        if self.next_active_cells.is_empty() && !self.active_cells.is_empty() {
-            self.scan_for_active_cells();
-        }
+        // Update active bounds for next frame
+        self.recalculate_active_bounds();
     }
     
-    fn scan_for_active_cells(&mut self) {
-        // This is a more efficient scanning method that only scans the active area
-        // plus a small margin, rather than the entire grid
-        let x_start = self.min_active_x.saturating_sub(5);
-        let x_end = (self.max_active_x + 5).min(GRID_WIDTH);
-        let y_start = self.min_active_y.saturating_sub(5);
-        let y_end = (self.max_active_y + 5).min(GRID_HEIGHT);
+    fn recalculate_active_bounds(&mut self) {
+        self.min_active_x = GRID_WIDTH;
+        self.max_active_x = 0;
+        self.min_active_y = GRID_HEIGHT;
+        self.max_active_y = 0;
         
-        for y in y_start..y_end {
-            for x in x_start..x_end {
+        // Scan grid to find active area
+        for y in 0..GRID_HEIGHT {
+            for x in 0..GRID_WIDTH {
                 let idx = Self::get_index(x, y);
                 unsafe {
                     if *self.grid.get_unchecked(idx) != 0 {
-                        // Add to next_active_cells
-                        if self.next_active_cells.len() < self.max_active_cells {
-                            self.next_active_cells.push((x, y));
-                            
-                            // Also update the active bounds
-                            self.min_active_x = self.min_active_x.min(x);
-                            self.max_active_x = self.max_active_x.max(x);
-                            self.min_active_y = self.min_active_y.min(y);
-                            self.max_active_y = self.max_active_y.max(y);
-                            
-                            // Also add neighbors
-                            self.add_neighbors_to_active(x, y);
-                        }
+                        self.min_active_x = self.min_active_x.min(x);
+                        self.max_active_x = self.max_active_x.max(x);
+                        self.min_active_y = self.min_active_y.min(y);
+                        self.max_active_y = self.max_active_y.max(y);
                     }
                 }
             }
         }
     }
 
-    // Optimized temperature update function - now only processes active cells
+    // Optimized temperature update function
     fn update_temperatures_optimized(&mut self) {
-        // Early exit if no active cells
-        if self.active_cells.is_empty() {
+        // Only process active area
+        if self.min_active_x > self.max_active_x || self.min_active_y > self.max_active_y {
             return;
         }
         
         // For better performance, we'll use a double buffer approach
-        // But only copy the temperature for cells we'll actually process
-        let mut new_temps = vec![0.0; self.active_cells.len()];
-        let mut positions = Vec::with_capacity(self.active_cells.len());
+        let mut new_temps = self.temp.clone();
         
-        // Pre-compute indices and copy positions to avoid simultaneous borrows
-        for &(x, y) in &self.active_cells {
-            positions.push((x, y));
-        }
+        // Process only active area with padding
+        let y_start = self.min_active_y.saturating_sub(1);
+        let y_end = (self.max_active_y + 1).min(GRID_HEIGHT - 1);
+        let x_start = self.min_active_x.saturating_sub(1);
+        let x_end = (self.max_active_x + 1).min(GRID_WIDTH - 1);
         
-        // Process only active cells and a small neighborhood
-        for (i, &(x, y)) in positions.iter().enumerate() {
-            let idx = Self::get_index(x, y);
-            
-            unsafe {
-                let material_u8 = *self.grid.get_unchecked(idx);
+        for y in y_start..=y_end {
+            for x in x_start..=x_end {
+                let idx = Self::get_index(x, y);
                 
-                if material_u8 == 0 {
-                    // Empty cells tend toward ambient temperature
-                    new_temps[i] = AMBIENT_TEMP;
-                    continue;
-                }
-                
-                let cell_temp = *self.temp.get_unchecked(idx);
-                let material = MaterialType::from_u8(material_u8);
-                
-                // Special cases
-                if material == MaterialType::Fire {
-                    new_temps[i] = (cell_temp + 10.0).min(MAX_TEMP);
-                    continue;
-                } else if material == MaterialType::Lava {
-                    new_temps[i] = (cell_temp - 0.1).max(1000.0);
-                    continue;
-                }
-                
-                // Simplified temperature diffusion 
-                // Only consider direct neighbors (not diagonal)
-                let mut neighbor_temp_sum = 0.0;
-                let mut neighbor_count = 0;
-                
-                // Direct neighbors only (faster)
-                let neighbors = [
-                    (x.saturating_sub(1), y),
-                    (x.saturating_add(1).min(GRID_WIDTH-1), y),
-                    (x, y.saturating_sub(1)),
-                    (x, y.saturating_add(1).min(GRID_HEIGHT-1))
-                ];
-                
-                for &(nx, ny) in &neighbors {
-                    if nx < GRID_WIDTH && ny < GRID_HEIGHT {
-                        neighbor_temp_sum += self.get_temp(nx, ny);
+                unsafe {
+                    let material_u8 = *self.grid.get_unchecked(idx);
+                    
+                    if material_u8 == 0 {
+                        // Empty cells tend toward ambient temperature
+                        *new_temps.get_unchecked_mut(idx) = AMBIENT_TEMP;
+                        continue;
+                    }
+                    
+                    let cell_temp = *self.temp.get_unchecked(idx);
+                    let material = MaterialType::from_u8(material_u8);
+                    
+                    // Special cases
+                    if material == MaterialType::Fire {
+                        *new_temps.get_unchecked_mut(idx) = (cell_temp + 10.0).min(MAX_TEMP);
+                        continue;
+                    } else if material == MaterialType::Lava {
+                        *new_temps.get_unchecked_mut(idx) = (cell_temp - 0.1).max(1000.0);
+                        continue;
+                    }
+                    
+                    // Temperature diffusion with neighbors
+                    let mut neighbor_temp_sum = 0.0;
+                    let mut neighbor_count = 0;
+                    
+                    // Unrolled neighbor loop for better performance
+                    if x > 0 {
+                        neighbor_temp_sum += self.get_temp(x - 1, y);
                         neighbor_count += 1;
                     }
+                    if x < GRID_WIDTH - 1 {
+                        neighbor_temp_sum += self.get_temp(x + 1, y);
+                        neighbor_count += 1;
+                    }
+                    if y > 0 {
+                        neighbor_temp_sum += self.get_temp(x, y - 1);
+                        neighbor_count += 1;
+                    }
+                    if y < GRID_HEIGHT - 1 {
+                        neighbor_temp_sum += self.get_temp(x, y + 1);
+                        neighbor_count += 1;
+                    }
+                    
+                    // Diagonal neighbors (less weight)
+                    if x > 0 && y > 0 {
+                        neighbor_temp_sum += self.get_temp(x - 1, y - 1) * 0.7;
+                        neighbor_count += 1;
+                    }
+                    if x < GRID_WIDTH - 1 && y > 0 {
+                        neighbor_temp_sum += self.get_temp(x + 1, y - 1) * 0.7;
+                        neighbor_count += 1;
+                    }
+                    if x > 0 && y < GRID_HEIGHT - 1 {
+                        neighbor_temp_sum += self.get_temp(x - 1, y + 1) * 0.7;
+                        neighbor_count += 1;
+                    }
+                    if x < GRID_WIDTH - 1 && y < GRID_HEIGHT - 1 {
+                        neighbor_temp_sum += self.get_temp(x + 1, y + 1) * 0.7;
+                        neighbor_count += 1;
+                    }
+                    
+                    // Pre-computed conductivity lookup
+                    let conductivity = match material {
+                        MaterialType::Stone => 0.2,
+                        MaterialType::Water => 0.6,
+                        MaterialType::Sand => 0.3,
+                        MaterialType::Plant => 0.1,
+                        _ => 0.4,
+                    };
+                    
+                    let avg_neighbor_temp = neighbor_temp_sum / neighbor_count as f32;
+                    let delta_temp = (avg_neighbor_temp - cell_temp) * conductivity;
+                    let cooling = (AMBIENT_TEMP - cell_temp) * COOLING_RATE;
+                    
+                    *new_temps.get_unchecked_mut(idx) = (cell_temp + delta_temp + cooling).max(-273.15).min(MAX_TEMP);
                 }
-                
-                // Pre-computed conductivity lookup
-                let conductivity = match material {
-                    MaterialType::Stone => 0.2,
-                    MaterialType::Water => 0.6,
-                    MaterialType::Sand => 0.3,
-                    MaterialType::Plant => 0.1,
-                    _ => 0.4,
-                };
-                
-                let avg_neighbor_temp = neighbor_temp_sum / neighbor_count as f32;
-                let delta_temp = (avg_neighbor_temp - cell_temp) * conductivity;
-                let cooling = (AMBIENT_TEMP - cell_temp) * COOLING_RATE;
-                
-                new_temps[i] = (cell_temp + delta_temp + cooling).max(-273.15).min(MAX_TEMP);
             }
         }
         
-        // Apply new temperatures
-        for (i, &(x, y)) in positions.iter().enumerate() {
-            self.set_temp(x, y, new_temps[i]);
-        }
+        // Swap buffers
+        std::mem::swap(&mut self.temp, &mut new_temps);
     }
 
     #[inline(always)]
@@ -527,12 +467,6 @@ impl SandSimulation {
             // Retain a tiny bit of momentum for future movement possibility
             self.set_vel_x(x, y, vx * 0.05);
             self.set_vel_y(x, y, vy * 0.05);
-            
-            // Make sure to add this cell to next active cells
-            if self.next_active_cells.len() < self.max_active_cells {
-                self.next_active_cells.push((x, y));
-            }
-            
             return;
         }
         
@@ -609,11 +543,6 @@ impl SandSimulation {
         // If we couldn't move, lose most but not all momentum (for potential future movement)
         self.set_vel_x(x, y, vx * 0.1);
         self.set_vel_y(x, y, vy * 0.1);
-        
-        // Make sure to add this cell to next active cells
-        if self.next_active_cells.len() < self.max_active_cells {
-            self.next_active_cells.push((x, y));
-        }
     }
 
     fn update_water(&mut self, x: usize, y: usize) {
@@ -630,13 +559,7 @@ impl SandSimulation {
         }
         
         // Water keeps some horizontal momentum
-        vx *= 0.98; // Increased from 0.95 for better flow
-        
-        // Add small random movement for natural flow
-        let mut rng = rand::thread_rng();
-        if rng.gen_bool(0.1) {
-            vx += (rng.gen::<f32>() - 0.5) * 0.2;
-        }
+        vx *= 0.95;
         
         // Calculate potential new position based on velocity
         let new_x = (x as f32 + vx).round() as usize;
@@ -661,7 +584,7 @@ impl SandSimulation {
 
             // Try to move diagonally down
             if y < GRID_HEIGHT - 1 {
-                let left_first = rng.gen_bool(0.5);
+                let left_first = rand::thread_rng().gen_bool(0.5);
                 
                 if left_first {
                     // Try left diagonal first
@@ -708,75 +631,47 @@ impl SandSimulation {
                 }
             }
 
-            // Try to move horizontally with good momentum - enhanced for better flow
+            // Try to move horizontally with good momentum
             // Choose direction based on current horizontal velocity
-            let spread_left = vx < 0.0 || (vx == 0.0 && rng.gen_bool(0.5));
-            let horizontal_speed = vx.abs().max(0.7); // Minimum flow speed increased
+            let spread_left = vx < 0.0 || (vx == 0.0 && rand::thread_rng().gen_bool(0.5));
+            let horizontal_speed = vx.abs() + 0.5; // Add minimum flow speed
             
-            // Try moving horizontally with increased range
-            // Water should spread more aggressively horizontally
-            for spread_distance in 1..=3 {
-                if spread_left {
-                    // Try left with increasing horizontal velocity
-                    if x >= spread_distance && self.can_move_to(x - spread_distance, y) {
-                        self.set(x - spread_distance, y, MaterialType::Water);
-                        self.set(x, y, MaterialType::Empty);
-                        // Increase horizontal velocity for better flow
-                        self.set_vel_x(x - spread_distance, y, -horizontal_speed);
-                        self.set_vel_y(x - spread_distance, y, vy * 0.2); // Reduce vertical component
-                        self.set_updated(x - spread_distance, y, true);
-                        return;
-                    }
-                } else {
-                    // Try right with increasing horizontal velocity
-                    if x + spread_distance < GRID_WIDTH && self.can_move_to(x + spread_distance, y) {
-                        self.set(x + spread_distance, y, MaterialType::Water);
-                        self.set(x, y, MaterialType::Empty);
-                        self.set_vel_x(x + spread_distance, y, horizontal_speed);
-                        self.set_vel_y(x + spread_distance, y, vy * 0.2);
-                        self.set_updated(x + spread_distance, y, true);
-                        return;
-                    }
-                }
-                
-                // Only try first distance in most cases
-                if spread_distance > 1 && rng.gen_bool(0.7) {
-                    break;
-                }
-            }
-            
-            // Try the opposite direction if first direction failed
             if spread_left {
+                // Try left with increasing horizontal velocity
+                if x > 0 && self.can_move_to(x - 1, y) {
+                    self.set(x - 1, y, MaterialType::Water);
+                    self.set(x, y, MaterialType::Empty);
+                    // Increase horizontal velocity for better flow
+                    self.set_vel_x(x - 1, y, -horizontal_speed);
+                    self.set_vel_y(x - 1, y, vy * 0.2); // Reduce vertical component
+                    self.set_updated(x - 1, y, true);
+                    return;
+                }
+                // Try right
                 if x < GRID_WIDTH - 1 && self.can_move_to(x + 1, y) {
                     self.set(x + 1, y, MaterialType::Water);
                     self.set(x, y, MaterialType::Empty);
-                    
-                    // Move temperature
-                    let temp = self.get_temp(x, y);
-                    self.set_temp(x + 1, y, temp);
-                    self.set_temp(x, y, AMBIENT_TEMP);
-                    
-                    // Slow horizontal movement for water
-                    self.set_vel_x(x + 1, y, horizontal_speed);
+                    self.set_vel_x(x + 1, y, horizontal_speed); 
                     self.set_vel_y(x + 1, y, vy * 0.2);
-                    
                     self.set_updated(x + 1, y, true);
                     return;
                 }
             } else {
+                // Try right with increasing horizontal velocity
+                if x < GRID_WIDTH - 1 && self.can_move_to(x + 1, y) {
+                    self.set(x + 1, y, MaterialType::Water);
+                    self.set(x, y, MaterialType::Empty);
+                    self.set_vel_x(x + 1, y, horizontal_speed);
+                    self.set_vel_y(x + 1, y, vy * 0.2);
+                    self.set_updated(x + 1, y, true);
+                    return;
+                }
+                // Try left
                 if x > 0 && self.can_move_to(x - 1, y) {
                     self.set(x - 1, y, MaterialType::Water);
                     self.set(x, y, MaterialType::Empty);
-                    
-                    // Move temperature
-                    let temp = self.get_temp(x, y);
-                    self.set_temp(x - 1, y, temp);
-                    self.set_temp(x, y, AMBIENT_TEMP);
-                    
-                    // Slow horizontal movement for water
                     self.set_vel_x(x - 1, y, -horizontal_speed);
                     self.set_vel_y(x - 1, y, vy * 0.2);
-                    
                     self.set_updated(x - 1, y, true);
                     return;
                 }
@@ -785,14 +680,6 @@ impl SandSimulation {
             // If we couldn't move, reduce momentum but keep some for when path clears
             self.set_vel_x(x, y, vx * 0.8);
             self.set_vel_y(x, y, vy * 0.5);
-            
-            // Add to next active cells since it should be checked next frame
-            if self.next_active_cells.len() < self.max_active_cells {
-                self.next_active_cells.push((x, y));
-                
-                // Also add all neighbors to ensure flow continues
-                self.add_neighbors_to_active(x, y);
-            }
             return;
         }
         
@@ -811,7 +698,7 @@ impl SandSimulation {
             
             // If blocked below, increase horizontal velocity for better flow
             if y < GRID_HEIGHT - 1 && self.get(x, y + 1) != MaterialType::Empty {
-                vx += (rng.gen::<f32>() - 0.5) * 1.8; // Increased horizontal force
+                vx += (rand::thread_rng().gen::<f32>() - 0.5) * 1.5; // Substantial random horizontal force
             }
             
             let order = [
@@ -819,7 +706,6 @@ impl SandSimulation {
                 (1, 1), (-1, 1),             // Down-right, down-left
                 (1, 0), (-1, 0),             // Right, left
                 (2, 0), (-2, 0),             // Further right, further left (allows faster flow)
-                (3, 0), (-3, 0),             // Even further for better horizontal flow
                 (0, -1), (1, -1), (-1, -1)   // Up, up-right, up-left
             ];
             
@@ -832,7 +718,7 @@ impl SandSimulation {
                     self.set(x, y, MaterialType::Empty);
                     
                     // Adjust velocity based on movement direction
-                    let new_vx = if *dx > 0 { vx.max(0.7) } else if *dx < 0 { vx.min(-0.7) } else { vx * 0.8 };
+                    let new_vx = if *dx > 0 { vx.max(0.5) } else if *dx < 0 { vx.min(-0.5) } else { vx * 0.8 };
                     let new_vy = if *dy > 0 { vy * 0.9 } else { vy * 0.4 };
                     
                     self.set_vel_x(nx, ny, new_vx);
@@ -847,14 +733,6 @@ impl SandSimulation {
             // Water retains more momentum than sand when blocked
             self.set_vel_x(x, y, vx * 0.7);
             self.set_vel_y(x, y, vy * 0.3);
-            
-            // Add to next active cells since it should be checked next frame
-            if self.next_active_cells.len() < self.max_active_cells {
-                self.next_active_cells.push((x, y));
-                
-                // Also add all neighbors to ensure flow continues
-                self.add_neighbors_to_active(x, y);
-            }
         }
     }
 
@@ -1096,11 +974,6 @@ impl SandSimulation {
         if x < GRID_WIDTH - 1 && check_ignite(x + 1, y, self) { return; }
         if y > 0 && check_ignite(x, y - 1, self) { return; }
         if y < GRID_HEIGHT - 1 && check_ignite(x, y + 1, self) { return; }
-        
-        // Add to next active cells if fire continues to exist
-        if self.next_active_cells.len() < self.max_active_cells {
-            self.next_active_cells.push((x, y));
-        }
     }
 
     fn update_lava(&mut self, x: usize, y: usize) {
@@ -1113,11 +986,6 @@ impl SandSimulation {
             self.set(x, y, MaterialType::Stone);
             self.set_vel_x(x, y, 0.0);
             self.set_vel_y(x, y, 0.0);
-            
-            // Add to next active cells since it's now stone that may still move
-            if self.next_active_cells.len() < self.max_active_cells {
-                self.next_active_cells.push((x, y));
-            }
             return;
         }
 
@@ -1131,13 +999,7 @@ impl SandSimulation {
         }
         
         // Lava has higher friction, so horizontal momentum decays slower to promote flow
-        vx *= 0.98;
-        
-        // Add small random movement for natural flow
-        let mut rng = rand::thread_rng();
-        if rng.gen_bool(0.05) {
-            vx += (rng.gen::<f32>() - 0.5) * 0.1;
-        }
+        vx *= 0.95;
         
         // Calculate potential new position based on velocity
         let new_x = (x as f32 + vx).round() as usize;
@@ -1191,8 +1053,8 @@ impl SandSimulation {
         }
         
         // Try to move diagonally down (with lower probability)
-        if y < GRID_HEIGHT - 1 && rng.gen_bool(0.8) {
-            let left_first = rng.gen_bool(0.5);
+        if y < GRID_HEIGHT - 1 && rand::thread_rng().gen_bool(0.8) {
+            let left_first = rand::thread_rng().gen_bool(0.5);
             
             if left_first {
                 // Try left diagonal
@@ -1266,19 +1128,19 @@ impl SandSimulation {
                 }
             }
         }
-        
+
         // Try to move horizontally (lava spreading) - increased probability for better flow
         // Always try horizontal movement when blocked below
         let should_spread = y >= GRID_HEIGHT - 1 || 
                             self.get(x, y + 1) != MaterialType::Empty || 
-                            rng.gen_bool(0.7);
+                            rand::thread_rng().gen_bool(0.7);
         
         if should_spread {
             // Choose direction based on velocity or random
             let spread_left = if vx.abs() > 0.1 {
                 vx < 0.0 
             } else {
-                rng.gen_bool(0.5)
+                rand::thread_rng().gen_bool(0.5)
             };
             
             // Calculate flow speed - lava should flow slowly but consistently
@@ -1287,54 +1149,25 @@ impl SandSimulation {
             let base_speed = 0.2 + temp_factor * 0.3; // 0.2-0.5 range based on temperature
             let flow_speed = base_speed + vx.abs() * 0.3;
             
-            // Try spreading further for lava pools
-            for spread_distance in 1..=2 {
-                if spread_left {
-                    // Try left
-                    if x >= spread_distance && self.can_move_to(x - spread_distance, y) {
-                        self.set(x - spread_distance, y, MaterialType::Lava);
-                        self.set(x, y, MaterialType::Empty);
-                        
-                        // Move temperature
-                        let temp = self.get_temp(x, y);
-                        self.set_temp(x - spread_distance, y, temp);
-                        self.set_temp(x, y, AMBIENT_TEMP);
-                        
-                        // Slow horizontal movement for lava
-                        self.set_vel_x(x - spread_distance, y, -flow_speed);
-                        self.set_vel_y(x - spread_distance, y, vy * 0.3);
-                        
-                        self.set_updated(x - spread_distance, y, true);
-                        return;
-                    }
-                } else {
-                    // Try right
-                    if x + spread_distance < GRID_WIDTH && self.can_move_to(x + spread_distance, y) {
-                        self.set(x + spread_distance, y, MaterialType::Lava);
-                        self.set(x, y, MaterialType::Empty);
-                        
-                        // Move temperature
-                        let temp = self.get_temp(x, y);
-                        self.set_temp(x + spread_distance, y, temp);
-                        self.set_temp(x, y, AMBIENT_TEMP);
-                        
-                        // Slow horizontal movement for lava
-                        self.set_vel_x(x + spread_distance, y, flow_speed);
-                        self.set_vel_y(x + spread_distance, y, vy * 0.3);
-                        
-                        self.set_updated(x + spread_distance, y, true);
-                        return;
-                    }
-                }
-                
-                // Only try first distance in most cases
-                if spread_distance > 1 && rng.gen_bool(0.7) {
-                    break;
-                }
-            }
-            
-            // Try opposite direction if preferred direction failed
             if spread_left {
+                // Try left
+                if x > 0 && self.can_move_to(x - 1, y) {
+                    self.set(x - 1, y, MaterialType::Lava);
+                    self.set(x, y, MaterialType::Empty);
+                    
+                    // Move temperature
+                    let temp = self.get_temp(x, y);
+                    self.set_temp(x - 1, y, temp);
+                    self.set_temp(x, y, AMBIENT_TEMP);
+                    
+                    // Slow horizontal movement for lava
+                    self.set_vel_x(x - 1, y, -flow_speed);
+                    self.set_vel_y(x - 1, y, vy * 0.3);
+                    
+                    self.set_updated(x - 1, y, true);
+                    return;
+                }
+                // Try right if left failed
                 if x < GRID_WIDTH - 1 && self.can_move_to(x + 1, y) {
                     self.set(x + 1, y, MaterialType::Lava);
                     self.set(x, y, MaterialType::Empty);
@@ -1352,6 +1185,24 @@ impl SandSimulation {
                     return;
                 }
             } else {
+                // Try right first
+                if x < GRID_WIDTH - 1 && self.can_move_to(x + 1, y) {
+                    self.set(x + 1, y, MaterialType::Lava);
+                    self.set(x, y, MaterialType::Empty);
+                    
+                    // Move temperature
+                    let temp = self.get_temp(x, y);
+                    self.set_temp(x + 1, y, temp);
+                    self.set_temp(x, y, AMBIENT_TEMP);
+                    
+                    // Slow horizontal movement for lava
+                    self.set_vel_x(x + 1, y, flow_speed);
+                    self.set_vel_y(x + 1, y, vy * 0.3);
+                    
+                    self.set_updated(x + 1, y, true);
+                    return;
+                }
+                // Try left if right failed
                 if x > 0 && self.can_move_to(x - 1, y) {
                     self.set(x - 1, y, MaterialType::Lava);
                     self.set(x, y, MaterialType::Empty);
@@ -1371,12 +1222,89 @@ impl SandSimulation {
             }
         }
         
+        // Try to move up diagonally (rare, but can happen for very hot lava or when blocked)
+        // This helps lava flow over small obstacles
+        if y > 0 && current_temp > 1400.0 && rand::thread_rng().gen_bool(0.05) {
+            let left_first = rand::thread_rng().gen_bool(0.5);
+            
+            if left_first {
+                // Try left up diagonal
+                if x > 0 && self.can_move_to(x - 1, y - 1) {
+                    self.set(x - 1, y - 1, MaterialType::Lava);
+                    self.set(x, y, MaterialType::Empty);
+                    
+                    // Move temperature
+                    let temp = self.get_temp(x, y);
+                    self.set_temp(x - 1, y - 1, temp - 50.0); // Cooling from upward movement
+                    self.set_temp(x, y, AMBIENT_TEMP);
+                    
+                    // Very slow upward movement
+                    self.set_vel_x(x - 1, y - 1, -0.2);
+                    self.set_vel_y(x - 1, y - 1, -0.1);
+                    
+                    self.set_updated(x - 1, y - 1, true);
+                    return;
+                }
+                // Try right up diagonal
+                if x < GRID_WIDTH - 1 && self.can_move_to(x + 1, y - 1) {
+                    self.set(x + 1, y - 1, MaterialType::Lava);
+                    self.set(x, y, MaterialType::Empty);
+                    
+                    // Move temperature
+                    let temp = self.get_temp(x, y);
+                    self.set_temp(x + 1, y - 1, temp - 50.0); // Cooling from upward movement
+                    self.set_temp(x, y, AMBIENT_TEMP);
+                    
+                    // Very slow upward movement
+                    self.set_vel_x(x + 1, y - 1, 0.2);
+                    self.set_vel_y(x + 1, y - 1, -0.1);
+                    
+                    self.set_updated(x + 1, y - 1, true);
+                    return;
+                }
+            } else {
+                // Same checks but in opposite order
+                if x < GRID_WIDTH - 1 && self.can_move_to(x + 1, y - 1) {
+                    self.set(x + 1, y - 1, MaterialType::Lava);
+                    self.set(x, y, MaterialType::Empty);
+                    
+                    // Move temperature
+                    let temp = self.get_temp(x, y);
+                    self.set_temp(x + 1, y - 1, temp - 50.0);
+                    self.set_temp(x, y, AMBIENT_TEMP);
+                    
+                    // Very slow upward movement
+                    self.set_vel_x(x + 1, y - 1, 0.2);
+                    self.set_vel_y(x + 1, y - 1, -0.1);
+                    
+                    self.set_updated(x + 1, y - 1, true);
+                    return;
+                }
+                if x > 0 && self.can_move_to(x - 1, y - 1) {
+                    self.set(x - 1, y - 1, MaterialType::Lava);
+                    self.set(x, y, MaterialType::Empty);
+                    
+                    // Move temperature
+                    let temp = self.get_temp(x, y);
+                    self.set_temp(x - 1, y - 1, temp - 50.0);
+                    self.set_temp(x, y, AMBIENT_TEMP);
+                    
+                    // Very slow upward movement
+                    self.set_vel_x(x - 1, y - 1, -0.2);
+                    self.set_vel_y(x - 1, y - 1, -0.1);
+                    
+                    self.set_updated(x - 1, y - 1, true);
+                    return;
+                }
+            }
+        }
+        
         // If we couldn't move, lava retains momentum for potential future flow
         self.set_vel_x(x, y, vx * 0.8);
         self.set_vel_y(x, y, vy * 0.2);
 
         // Heat neighbors and ignite flammables (optimized)
-        let mut check_and_heat = |nx: usize, ny: usize, sim: &mut SandSimulation| {
+        let check_and_heat = |nx: usize, ny: usize, sim: &mut SandSimulation| {
             if nx < GRID_WIDTH && ny < GRID_HEIGHT {
                 // Increase temperature of neighbors significantly
                 let current_temp = sim.get_temp(nx, ny);
@@ -1386,25 +1314,15 @@ impl SandSimulation {
                 
                 // Check if neighbor is flammable
                 let props = neighbor.get_properties();
-                if props.flammable && rng.gen_bool(0.3) {
+                if props.flammable && rand::thread_rng().gen_bool(0.3) {
                     sim.set(nx, ny, MaterialType::Fire);
                     sim.set_temp(nx, ny, 800.0); // High initial fire temperature
                     sim.set_updated(nx, ny, true);
-                    
-                    // Make sure the created fire is active
-                    if sim.next_active_cells.len() < sim.max_active_cells {
-                        sim.next_active_cells.push((nx, ny));
-                    }
                 }
                 
                 // Water touching lava produces steam (not implemented yet)
-                if neighbor == MaterialType::Water && rng.gen_bool(0.5) {
+                if neighbor == MaterialType::Water && rand::thread_rng().gen_bool(0.5) {
                     sim.set(nx, ny, MaterialType::Empty);
-                }
-                
-                // Always make neighbors active
-                if sim.next_active_cells.len() < sim.max_active_cells {
-                    sim.next_active_cells.push((nx, ny));
                 }
             }
         };
@@ -1414,11 +1332,6 @@ impl SandSimulation {
         if x < GRID_WIDTH - 1 { check_and_heat(x + 1, y, self); }
         if y > 0 { check_and_heat(x, y - 1, self); }
         if y < GRID_HEIGHT - 1 { check_and_heat(x, y + 1, self); }
-        
-        // Add to next active cells
-        if self.next_active_cells.len() < self.max_active_cells {
-            self.next_active_cells.push((x, y));
-        }
     }
 
     fn update_stone(&mut self, x: usize, y: usize) {
@@ -1478,17 +1391,74 @@ impl SandSimulation {
             }
         }
         
-        // Rest of stone movement logic remains the same
-        // ...
+        // Not in free fall or failed to move, now focus on stable pile formation
+        // Stone is more rigid than sand, so it requires more momentum to move diagonally
+        
+        // If blocked below, check if we have enough momentum to move diagonally
+        // Stone needs substantial momentum to move diagonally (higher threshold)
+        if y < GRID_HEIGHT - 1 {
+            let momentum = vy.abs();
+            
+            if momentum > 1.5 { // High momentum threshold for stone
+                let left_first = rand::thread_rng().gen_bool(0.5);
+                
+                if left_first {
+                    // Try left diagonal
+                    if x > 0 && self.can_move_to(x - 1, y + 1) {
+                        self.set(x - 1, y + 1, MaterialType::Stone);
+                        self.set(x, y, MaterialType::Empty);
+                        
+                        // Significant momentum reduction after diagonal movement
+                        self.set_vel_x(x - 1, y + 1, vx * 0.3 - 0.1);
+                        self.set_vel_y(x - 1, y + 1, vy * 0.3);
+                        
+                        self.set_updated(x - 1, y + 1, true);
+                        return;
+                    }
+                    // Try right diagonal
+                    if x < GRID_WIDTH - 1 && self.can_move_to(x + 1, y + 1) {
+                        self.set(x + 1, y + 1, MaterialType::Stone);
+                        self.set(x, y, MaterialType::Empty);
+                        
+                        // Significant momentum reduction after diagonal movement
+                        self.set_vel_x(x + 1, y + 1, vx * 0.3 + 0.1);
+                        self.set_vel_y(x + 1, y + 1, vy * 0.3);
+                        
+                        self.set_updated(x + 1, y + 1, true);
+                        return;
+                    }
+                } else {
+                    // Try right diagonal first
+                    if x < GRID_WIDTH - 1 && self.can_move_to(x + 1, y + 1) {
+                        self.set(x + 1, y + 1, MaterialType::Stone);
+                        self.set(x, y, MaterialType::Empty);
+                        
+                        // Significant momentum reduction after diagonal movement
+                        self.set_vel_x(x + 1, y + 1, vx * 0.3 + 0.1);
+                        self.set_vel_y(x + 1, y + 1, vy * 0.3);
+                        
+                        self.set_updated(x + 1, y + 1, true);
+                        return;
+                    }
+                    // Try left diagonal
+                    if x > 0 && self.can_move_to(x - 1, y + 1) {
+                        self.set(x - 1, y + 1, MaterialType::Stone);
+                        self.set(x, y, MaterialType::Empty);
+                        
+                        // Significant momentum reduction after diagonal movement
+                        self.set_vel_x(x - 1, y + 1, vx * 0.3 - 0.1);
+                        self.set_vel_y(x - 1, y + 1, vy * 0.3);
+                        
+                        self.set_updated(x - 1, y + 1, true);
+                        return;
+                    }
+                }
+            }
+        }
         
         // If we couldn't move, retain very little momentum
         self.set_vel_x(x, y, vx * 0.05);
         self.set_vel_y(x, y, vy * 0.05);
-        
-        // Only add to next active cells if we have momentum
-        if (vx.abs() > 0.05 || vy.abs() > 0.05) && self.next_active_cells.len() < self.max_active_cells {
-            self.next_active_cells.push((x, y));
-        }
     }
 
     fn update_plant(&mut self, x: usize, y: usize) {
@@ -1548,17 +1518,75 @@ impl SandSimulation {
             }
         }
         
-        // Rest of plant movement logic remains the same
-        // ...
+        // Not in free fall or failed to move, now focus on stable pile formation
+        // Plant is more organic than stone, forming looser piles
+
+        // Plant can move diagonally more easily than stone, but less than sand
+        if y < GRID_HEIGHT - 1 {
+            // This creates piles that are somewhat less structured than stone
+            let momentum = vy.abs();
+            
+            if momentum > 0.8 || rand::thread_rng().gen_bool(0.15) { // Lower threshold, plus random chance
+                let left_first = rand::thread_rng().gen_bool(0.5);
+                
+                if left_first {
+                    // Try left diagonal
+                    if x > 0 && self.can_move_to(x - 1, y + 1) {
+                        self.set(x - 1, y + 1, MaterialType::Plant);
+                        self.set(x, y, MaterialType::Empty);
+                        
+                        // Mild momentum reduction after diagonal movement
+                        self.set_vel_x(x - 1, y + 1, vx * 0.5 - 0.2);
+                        self.set_vel_y(x - 1, y + 1, vy * 0.5);
+                        
+                        self.set_updated(x - 1, y + 1, true);
+                        return;
+                    }
+                    // Try right diagonal
+                    if x < GRID_WIDTH - 1 && self.can_move_to(x + 1, y + 1) {
+                        self.set(x + 1, y + 1, MaterialType::Plant);
+                        self.set(x, y, MaterialType::Empty);
+                        
+                        // Mild momentum reduction after diagonal movement
+                        self.set_vel_x(x + 1, y + 1, vx * 0.5 + 0.2);
+                        self.set_vel_y(x + 1, y + 1, vy * 0.5);
+                        
+                        self.set_updated(x + 1, y + 1, true);
+                        return;
+                    }
+                } else {
+                    // Same pattern with right first
+                    // Try right diagonal first
+                    if x < GRID_WIDTH - 1 && self.can_move_to(x + 1, y + 1) {
+                        self.set(x + 1, y + 1, MaterialType::Plant);
+                        self.set(x, y, MaterialType::Empty);
+                        
+                        // Mild momentum reduction after diagonal movement
+                        self.set_vel_x(x + 1, y + 1, vx * 0.5 + 0.2);
+                        self.set_vel_y(x + 1, y + 1, vy * 0.5);
+                        
+                        self.set_updated(x + 1, y + 1, true);
+                        return;
+                    }
+                    // Try left diagonal
+                    if x > 0 && self.can_move_to(x - 1, y + 1) {
+                        self.set(x - 1, y + 1, MaterialType::Plant);
+                        self.set(x, y, MaterialType::Empty);
+                        
+                        // Mild momentum reduction after diagonal movement
+                        self.set_vel_x(x - 1, y + 1, vx * 0.5 - 0.2);
+                        self.set_vel_y(x - 1, y + 1, vy * 0.5);
+                        
+                        self.set_updated(x - 1, y + 1, true);
+                        return;
+                    }
+                }
+            }
+        }
         
         // If we couldn't move, lose momentum gradually (plants retain more than stone)
         self.set_vel_x(x, y, vx * 0.2);
         self.set_vel_y(x, y, vy * 0.1);
-        
-        // Only add to next active cells if we have momentum
-        if (vx.abs() > 0.1 || vy.abs() > 0.1) && self.next_active_cells.len() < self.max_active_cells {
-            self.next_active_cells.push((x, y));
-        }
     }
 
     // Helper method to get temperature color modification
@@ -1588,31 +1616,12 @@ impl SandSimulation {
     }
 
     pub fn draw(&self, frame: &mut [u8]) {
-        // Optimized drawing - draw only the active area with a small margin
-        // This significantly improves performance for sparse simulations
-        let x_start = self.min_active_x.saturating_sub(5);
-        let x_end = (self.max_active_x + 5).min(GRID_WIDTH);
-        let y_start = self.min_active_y.saturating_sub(5);
-        let y_end = (self.max_active_y + 5).min(GRID_HEIGHT);
-        
-        // If no active area, only draw the border
-        if x_start > x_end || y_start > y_end {
-            // Draw a border around the simulation area
-            self.draw_border(frame);
-            return;
-        }
-        
-        // Draw the active area
-        for y in y_start..y_end {
-            for x in x_start..x_end {
+        // Always draw the full grid to avoid striping artifacts
+        for y in 0..GRID_HEIGHT {
+            for x in 0..GRID_WIDTH {
                 let material = self.get(x, y);
                 let props = material.get_properties();
                 let base_color = props.color;
-                
-                // Skip drawing empty cells for performance
-                if material == MaterialType::Empty {
-                    continue;
-                }
                 
                 // Apply temperature color modification
                 let temp_mod = self.get_temp_color_modifier(x, y);
@@ -1622,33 +1631,20 @@ impl SandSimulation {
                 let b = (base_color[2] as i16 + temp_mod[2]).max(0).min(255) as u8;
                 let a = base_color[3];
                 
-                // Draw the cell (scaled by CELL_SIZE) using an optimized loop
-                if CELL_SIZE == 1 {
-                    // Special case for CELL_SIZE = 1 (much faster)
-                    let idx = ((y * WINDOW_WIDTH as usize) + x) * 4;
-                    if idx + 3 < frame.len() {
-                        frame[idx] = r;
-                        frame[idx + 1] = g;
-                        frame[idx + 2] = b;
-                        frame[idx + 3] = a;
-                    }
-                } else {
-                    // General case for any CELL_SIZE
-                    let start_px = x * CELL_SIZE;
-                    let start_py = y * CELL_SIZE;
-                    let end_px = start_px + CELL_SIZE;
-                    let end_py = start_py + CELL_SIZE;
-                    
-                    for py in start_py..end_py {
-                        let row_offset = py * WINDOW_WIDTH as usize * 4;
-                        for px in start_px..end_px {
-                            let idx = row_offset + px * 4;
-                            if idx + 3 < frame.len() {
-                                frame[idx] = r;
-                                frame[idx + 1] = g;
-                                frame[idx + 2] = b;
-                                frame[idx + 3] = a;
-                            }
+                // Draw the cell (scaled by CELL_SIZE)
+                for dy in 0..CELL_SIZE {
+                    for dx in 0..CELL_SIZE {
+                        let px = x * CELL_SIZE + dx;
+                        let py = y * CELL_SIZE + dy;
+                        
+                        // Calculate index in frame buffer
+                        let idx = ((py * WINDOW_WIDTH as usize) + px) * 4;
+                        
+                        if idx + 3 < frame.len() {
+                            frame[idx] = r;
+                            frame[idx + 1] = g;
+                            frame[idx + 2] = b;
+                            frame[idx + 3] = a;
                         }
                     }
                 }
@@ -1656,13 +1652,9 @@ impl SandSimulation {
         }
         
         // Draw a border around the simulation area
-        self.draw_border(frame);
-    }
-    
-    fn draw_border(&self, frame: &mut [u8]) {
-        // Draw border (1 pixel width)
         for y in 0..HEIGHT as usize {
             for x in 0..WIDTH as usize {
+                // Draw border (1 pixel width)
                 if x < 1 || x >= WIDTH as usize - 1 || 
                    y < 1 || y >= HEIGHT as usize - 1 {
                     let idx = (y * WINDOW_WIDTH as usize + x) * 4;
@@ -1674,93 +1666,6 @@ impl SandSimulation {
         }
     }
 
-    // New method for bulk material creation to avoid constant active cell recomputation
-    pub fn add_materials_bulk(&mut self, positions: &[(usize, usize)], material: MaterialType) {
-        if positions.is_empty() {
-            return;
-        }
-        
-        // Calculate initial temp and velocity based on material type
-        let (init_temp, init_vx_factor, init_vy_factor) = match material {
-            MaterialType::Fire => (800.0, 0.4, -0.5),
-            MaterialType::Lava => (1800.0, 0.5, 0.2),
-            MaterialType::Water => (AMBIENT_TEMP, 1.5, 0.3),
-            MaterialType::Sand => (AMBIENT_TEMP, 0.8, 0.5),
-            MaterialType::Stone => (AMBIENT_TEMP, 0.4, 0.6),
-            MaterialType::Plant => (AMBIENT_TEMP, 0.6, 0.4),
-            _ => (AMBIENT_TEMP, 0.0, 0.0),
-        };
-        
-        let mut rng = rand::thread_rng();
-        
-        // First pass: set all materials without bounds checks
-        for &(x, y) in positions {
-            if x < GRID_WIDTH && y < GRID_HEIGHT {
-                if material == MaterialType::Eraser {
-                    let idx = Self::get_index(x, y);
-                    unsafe {
-                        *self.grid.get_unchecked_mut(idx) = 0;
-                        *self.temp.get_unchecked_mut(idx) = AMBIENT_TEMP;
-                        *self.vel_x.get_unchecked_mut(idx) = 0.0;
-                        *self.vel_y.get_unchecked_mut(idx) = 0.0;
-                    }
-                } else {
-                    let idx = Self::get_index(x, y);
-                    let random_vx = (rng.gen::<f32>() - 0.5) * init_vx_factor;
-                    let random_vy = rng.gen::<f32>() * init_vy_factor;
-                    
-                    unsafe {
-                        *self.grid.get_unchecked_mut(idx) = material.to_u8();
-                        *self.temp.get_unchecked_mut(idx) = init_temp;
-                        *self.vel_x.get_unchecked_mut(idx) = random_vx;
-                        *self.vel_y.get_unchecked_mut(idx) = random_vy + init_vy_factor;
-                    }
-                }
-            }
-        }
-        
-        // Second pass: update bounds and add to active cells
-        // This is more efficient than updating for each cell
-        for &(x, y) in positions {
-            if x < GRID_WIDTH && y < GRID_HEIGHT && material != MaterialType::Eraser {
-                // Update active bounds
-                self.min_active_x = self.min_active_x.min(x);
-                self.max_active_x = self.max_active_x.max(x);
-                self.min_active_y = self.min_active_y.min(y);
-                self.max_active_y = self.max_active_y.max(y);
-                
-                // Add to next active cells
-                if self.next_active_cells.len() < self.max_active_cells {
-                    self.next_active_cells.push((x, y));
-                }
-            }
-        }
-        
-        // Third pass: add neighbors
-        // Copy to avoid borrow issues
-        let cells_to_add = self.next_active_cells.len();
-        let mut neighbor_positions = Vec::with_capacity(cells_to_add * 4);
-        
-        for i in 0..cells_to_add {
-            let (x, y) = self.next_active_cells[i];
-            
-            // Only add essential neighbors
-            if x > 0 { neighbor_positions.push((x-1, y)); }
-            if x < GRID_WIDTH - 1 { neighbor_positions.push((x+1, y)); }
-            if y > 0 { neighbor_positions.push((x, y-1)); }
-            if y < GRID_HEIGHT - 1 { neighbor_positions.push((x, y+1)); }
-        }
-        
-        // Add neighbors to active cells (deduplicate later when needed)
-        for &(nx, ny) in &neighbor_positions {
-            if self.next_active_cells.len() < self.max_active_cells {
-                self.next_active_cells.push((nx, ny));
-            } else {
-                break;
-            }
-        }
-    }
-    
     pub fn add_material(&mut self, x: usize, y: usize, brush_size: usize, material: MaterialType) {
         let start_x = x.saturating_sub(brush_size);
         let end_x = (x + brush_size).min(GRID_WIDTH - 1);
@@ -1769,20 +1674,69 @@ impl SandSimulation {
         
         let brush_size_squared = (brush_size * brush_size) as isize;
         
-        // Pre-calculate all positions for bulk update
-        let mut positions = Vec::new();
-        
         for cy in start_y..=end_y {
             for cx in start_x..=end_x {
                 let dx = cx as isize - x as isize;
                 let dy = cy as isize - y as isize;
                 if dx * dx + dy * dy <= brush_size_squared {
-                    positions.push((cx, cy));
+                    if material == MaterialType::Eraser {
+                        self.set(cx, cy, MaterialType::Empty);
+                        self.set_temp(cx, cy, AMBIENT_TEMP);
+                        self.set_vel_x(cx, cy, 0.0);
+                        self.set_vel_y(cx, cy, 0.0);
+                    } else {
+                        self.set(cx, cy, material);
+                        
+                        // Add some initial velocity variation based on material
+                        let random_vx = (rand::thread_rng().gen::<f32>() - 0.5) * 0.4;
+                        let random_vy = rand::thread_rng().gen::<f32>() * 0.2;
+                        
+                        match material {
+                            MaterialType::Fire => {
+                                self.set_temp(cx, cy, 800.0);
+                                // Fire starts with upward velocity
+                                self.set_vel_x(cx, cy, random_vx);
+                                self.set_vel_y(cx, cy, -0.5 + random_vy);
+                            },
+                            MaterialType::Lava => {
+                                self.set_temp(cx, cy, 1800.0);
+                                // Lava starts with small downward velocity
+                                self.set_vel_x(cx, cy, random_vx * 0.5);
+                                self.set_vel_y(cx, cy, 0.2 + random_vy * 0.5);
+                            },
+                            MaterialType::Water => {
+                                self.set_temp(cx, cy, AMBIENT_TEMP);
+                                // Water starts with more horizontal spread
+                                self.set_vel_x(cx, cy, random_vx * 1.5);
+                                self.set_vel_y(cx, cy, 0.3 + random_vy);
+                            },
+                            MaterialType::Sand => {
+                                self.set_temp(cx, cy, AMBIENT_TEMP);
+                                // Sand has some initial downward velocity
+                                self.set_vel_x(cx, cy, random_vx * 0.8);
+                                self.set_vel_y(cx, cy, 0.5 + random_vy);
+                            },
+                            MaterialType::Stone => {
+                                self.set_temp(cx, cy, AMBIENT_TEMP);
+                                // Stone has higher initial downward velocity
+                                self.set_vel_x(cx, cy, random_vx * 0.4); // Less horizontal movement
+                                self.set_vel_y(cx, cy, 0.6 + random_vy * 0.8);
+                            },
+                            MaterialType::Plant => {
+                                self.set_temp(cx, cy, AMBIENT_TEMP);
+                                // Plant has moderate initial velocity
+                                self.set_vel_x(cx, cy, random_vx * 0.6);
+                                self.set_vel_y(cx, cy, 0.4 + random_vy * 0.7);
+                            },
+                            _ => {
+                                self.set_temp(cx, cy, AMBIENT_TEMP);
+                                self.set_vel_x(cx, cy, 0.0);
+                                self.set_vel_y(cx, cy, 0.0);
+                            }
+                        }
+                    }
                 }
             }
         }
-        
-        // Apply bulk update
-        self.add_materials_bulk(&positions, material);
     }
 }

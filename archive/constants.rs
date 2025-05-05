@@ -1,10 +1,12 @@
+// File: constants.rs
+
 // Grid and window dimensions
 pub const GRID_WIDTH: usize = 200;
 pub const GRID_HEIGHT: usize = 150;
 pub const CELL_SIZE: usize = 4;
 pub const WIDTH: u32 = (GRID_WIDTH * CELL_SIZE) as u32;
 pub const HEIGHT: u32 = (GRID_HEIGHT * CELL_SIZE) as u32;
-pub const UI_WIDTH: u32 = 300; // Width of UI panel
+pub const UI_WIDTH: u32 = 300; // Increased from 200 to 300
 pub const WINDOW_WIDTH: u32 = WIDTH + UI_WIDTH;
 
 // Colors
