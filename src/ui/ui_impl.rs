@@ -1,7 +1,9 @@
 // ui/ui_impl.rs - Main UI implementation for the sand simulation
 
 use crate::constants::*;
-use crate::material::MaterialType;
+use crate::material::MaterialType as OldMaterialType;
+use crate::material_properties::MaterialType;
+use crate::material_converter::{to_new_material, to_old_material};
 use crate::simulation::SandSimulation;
 use super::components::{Button, Panel, Rect, Slider, StatusBar, ButtonAction};
 use super::text_renderer::TextRenderer;
@@ -78,13 +80,13 @@ impl UI {
     
     fn setup_buttons(&mut self) {
         let materials = [
-            (MaterialType::Sand, "Sand", C_SAND),
-            (MaterialType::Water, "Water", C_WATER),
-            (MaterialType::Stone, "Stone", C_STONE),
-            (MaterialType::Plant, "Plant", C_PLANT),
-            (MaterialType::Fire, "Fire", C_FIRE),
-            (MaterialType::Lava, "Lava", C_LAVA),
-            (MaterialType::Eraser, "Eraser", C_ERASER),
+            (OldMaterialType::Sand, "Sand", C_SAND),
+            (OldMaterialType::Water, "Water", C_WATER),
+            (OldMaterialType::Stone, "Stone", C_STONE),
+            (OldMaterialType::Plant, "Plant", C_PLANT),
+            (OldMaterialType::Fire, "Fire", C_FIRE),
+            (OldMaterialType::Lava, "Lava", C_LAVA),
+            (OldMaterialType::Eraser, "Eraser", C_ERASER),
         ];
         
         let button_height = 32;
@@ -140,7 +142,10 @@ impl UI {
                         }
                         // Select this button
                         self.buttons[i].is_selected = true;
-                        simulation.current_material = MaterialType::from_u8(material_id as u8);
+                        
+                        // Convert from old material type to new material type
+                        let old_material = OldMaterialType::from_u8(material_id as u8);
+                        simulation.current_material = to_new_material(old_material);
                     },
                     ButtonAction::ClearSimulation => {
                         simulation.clear();

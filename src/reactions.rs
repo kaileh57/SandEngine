@@ -133,7 +133,7 @@ impl ReactionEngine {
                     },
                     MaterialType::Gunpowder => {
                         // Gunpowder ignites easily if temp threshold met
-                        if self.explode(x, y, GUNPOWDER_YIELD, get_particle, &mut set_particle, &mut add_active_cell) {
+                        if self.explode(x, y, GUNPOWDER_YIELD, &get_particle, &mut set_particle, &mut add_active_cell) {
                             return true; // Explosion handled the particle
                         }
                     },
@@ -234,7 +234,7 @@ impl ReactionEngine {
         }
         
         // --- 5. Handle special material interactions ---
-        self.handle_special_material_effects(particle, x, y, delta_time, get_particle, &mut set_particle, &mut add_active_cell)
+        self.handle_special_material_effects(particle, x, y, delta_time, &get_particle, &mut set_particle, &mut add_active_cell)
     }
     
     // Handle special effects based on material type
@@ -244,12 +244,12 @@ impl ReactionEngine {
         x: usize, 
         y: usize, 
         delta_time: f32,
-        get_particle: impl Fn(usize, usize) -> Option<Particle>,
+        get_particle: &impl Fn(usize, usize) -> Option<Particle>,
         set_particle: &mut impl FnMut(usize, usize, Particle) -> bool,
         add_active_cell: &mut impl FnMut(usize, usize),
     ) -> bool {
         let material = particle.material;
-        let scaled_dt = delta_time * TARGET_DT_SCALING;
+        let _scaled_dt = delta_time * TARGET_DT_SCALING;
         
         match material {
             MaterialType::Fire => {
@@ -278,7 +278,7 @@ impl ReactionEngine {
         x: usize, 
         y: usize, 
         delta_time: f32,
-        get_particle: impl Fn(usize, usize) -> Option<Particle>,
+        get_particle: &impl Fn(usize, usize) -> Option<Particle>,
         set_particle: &mut impl FnMut(usize, usize, Particle) -> bool,
         add_active_cell: &mut impl FnMut(usize, usize),
     ) -> bool {
@@ -427,7 +427,7 @@ impl ReactionEngine {
         x: usize, 
         y: usize, 
         delta_time: f32,
-        get_particle: impl Fn(usize, usize) -> Option<Particle>,
+        get_particle: &impl Fn(usize, usize) -> Option<Particle>,
         set_particle: &mut impl FnMut(usize, usize, Particle) -> bool,
         add_active_cell: &mut impl FnMut(usize, usize),
     ) -> bool {
@@ -517,11 +517,11 @@ impl ReactionEngine {
     // Handle burning fuse effects
     fn handle_burning_fuse_effects(
         &mut self, 
-        particle: &mut Particle, 
+        _particle: &mut Particle, 
         x: usize, 
         y: usize, 
         delta_time: f32,
-        get_particle: impl Fn(usize, usize) -> Option<Particle>,
+        get_particle: &impl Fn(usize, usize) -> Option<Particle>,
         set_particle: &mut impl FnMut(usize, usize, Particle) -> bool,
     ) -> bool {
         let scaled_dt = delta_time * TARGET_DT_SCALING;
@@ -597,7 +597,7 @@ impl ReactionEngine {
         x: usize, 
         y: usize, 
         delta_time: f32,
-        get_particle: impl Fn(usize, usize) -> Option<Particle>,
+        get_particle: &impl Fn(usize, usize) -> Option<Particle>,
         set_particle: &mut impl FnMut(usize, usize, Particle) -> bool,
     ) -> bool {
         let props = particle.material.get_properties();
@@ -686,7 +686,7 @@ impl ReactionEngine {
         x: usize, 
         y: usize, 
         delta_time: f32,
-        get_particle: impl Fn(usize, usize) -> Option<Particle>,
+        get_particle: &impl Fn(usize, usize) -> Option<Particle>,
         set_particle: &mut impl FnMut(usize, usize, Particle) -> bool,
     ) -> bool {
         let scaled_dt = delta_time * TARGET_DT_SCALING;
@@ -781,7 +781,7 @@ impl ReactionEngine {
         cx: usize, 
         cy: usize, 
         radius: usize,
-        get_particle: impl Fn(usize, usize) -> Option<Particle>,
+        get_particle: &impl Fn(usize, usize) -> Option<Particle>,
         set_particle: &mut impl FnMut(usize, usize, Particle) -> bool,
         add_active_cell: &mut impl FnMut(usize, usize),
     ) -> bool {

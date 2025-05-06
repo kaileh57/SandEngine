@@ -36,6 +36,9 @@ pub struct SandSimulation {
     do_temperature_diffusion: bool,
     max_active_cells: usize,
     rng: ThreadRng,
+    
+    // Temporary working vectors to avoid reallocation
+    temp_updates: Vec<(usize, usize, f32)>,
 }
 
 impl SandSimulation {
@@ -68,6 +71,7 @@ impl SandSimulation {
             do_temperature_diffusion: true,
             max_active_cells: 50000,
             rng: rand::thread_rng(),
+            temp_updates: Vec::with_capacity(1000),
         }
     }
     
@@ -200,15 +204,8 @@ impl SandSimulation {
         
         // Process temperature diffusion if enabled
         if self.do_temperature_diffusion {
-            self.temperature.update_temperatures_optimized(
-                self.min_active_x,
-                self.max_active_x,
-                self.min_active_y,
-                self.max_active_y,
-                1.0 / 60.0, // Delta time (assuming 60 FPS)
-                |x, y| self.get_particle(x, y),
-                |x, y| self.get_particle_mut(x, y),
-            );
+            self.temp_updates.clear();
+            self.process_temperature_diffusion();
         }
         
         // Shuffle active cells for varied behavior
@@ -219,6 +216,119 @@ impl SandSimulation {
         
         // Check if we need to scan for new activity
         self.check_active_state();
+    }
+    
+    // Process temperature diffusion with minimal copying
+    fn process_temperature_diffusion(&mut self) {
+        let x_start = self.min_active_x.saturating_sub(5);
+        let x_end = (self.max_active_x + 5).min(GRID_WIDTH);
+        let y_start = self.min_active_y.saturating_sub(5);
+        let y_end = (self.max_active_y + 5).min(GRID_HEIGHT);
+        
+        // First pass: calculate temperatures without modifying particles
+        for y in y_start..y_end {
+            for x in x_start..x_end {
+                if let Some(particle) = self.get_particle(x, y) {
+                    if particle.material == MaterialType::Empty {
+                        continue;
+                    }
+                    
+                    let current_temp = particle.temperature.get();
+                    let material = particle.material;
+                    
+                    // Skip rigid/immovable materials if not burning/hot
+                    if material == MaterialType::Stone && 
+                       (current_temp - AMBIENT_TEMP).abs() < 10.0 {
+                        continue;
+                    }
+                    
+                    // Natural cooling and conduction
+                    let mut new_temp = current_temp;
+                    let props = material.get_properties();
+                    let conductivity = props.conductivity;
+                    
+                    // Collect neighbor temperatures - only query direct neighbors
+                    let mut neighbor_temp_sum = 0.0;
+                    let mut neighbor_conductivity_sum = 0.0;
+                    let mut neighbor_count = 0;
+                    
+                    for &(dx, dy) in &[(0, -1), (-1, 0), (1, 0), (0, 1)] {
+                        let nx = match (x as isize + dx).try_into() {
+                            Ok(val) if val < GRID_WIDTH => val,
+                            _ => continue,
+                        };
+                        
+                        let ny = match (y as isize + dy).try_into() {
+                            Ok(val) if val < GRID_HEIGHT => val,
+                            _ => continue,
+                        };
+                        
+                        if let Some(neighbor) = self.get_particle(nx, ny) {
+                            let n_temp = neighbor.temperature.get();
+                            let n_cond = neighbor.material.get_properties().conductivity;
+                            
+                            neighbor_temp_sum += n_temp * n_cond;
+                            neighbor_conductivity_sum += n_cond;
+                            neighbor_count += 1;
+                        } else {
+                            // Ambient for empty cells
+                            neighbor_temp_sum += AMBIENT_TEMP * 0.1;
+                            neighbor_conductivity_sum += 0.1;
+                            neighbor_count += 1;
+                        }
+                    }
+                    
+                    // Temperature changes
+                    if neighbor_count > 0 && (conductivity > 0.0 || neighbor_conductivity_sum > 0.0) {
+                        let total_conductivity = conductivity + neighbor_conductivity_sum;
+                        
+                        if total_conductivity > 0.001 {
+                            let weighted_avg_temp = (current_temp * conductivity + neighbor_temp_sum) / total_conductivity;
+                            let mut delta_temp = (weighted_avg_temp - current_temp) * 0.5_f32.min(conductivity);
+                            
+                            delta_temp *= (1.0 / 60.0) * TARGET_DT_SCALING;
+                            
+                            new_temp += delta_temp;
+                        }
+                    }
+                    
+                    // Apply ambient cooling
+                    new_temp += (AMBIENT_TEMP - new_temp) * COOLING_RATE * conductivity * (1.0 / 60.0) * TARGET_DT_SCALING;
+                    
+                    // Apply heat generation if material generates heat
+                    if let Some(heat_gen) = props.heat_generation {
+                        if heat_gen > 0.0 {
+                            new_temp += heat_gen * (1.0 / 60.0) * TARGET_DT_SCALING;
+                        }
+                    }
+                    
+                    // Special case temperatures
+                    match material {
+                        MaterialType::Fire => new_temp = new_temp.max(600.0),
+                        MaterialType::Lava => new_temp = new_temp.max(1200.0),
+                        MaterialType::Generator => new_temp = new_temp.max(300.0),
+                        MaterialType::Ice => new_temp = new_temp.min(-5.0),
+                        _ => {}
+                    }
+                    
+                    // Only update if temperature changed significantly
+                    if (new_temp - current_temp).abs() > 0.01 {
+                        self.temp_updates.push((x, y, new_temp));
+                    }
+                }
+            }
+        }
+        
+        // Second pass: Apply all temperature updates at once
+        // Copy the updates to a local Vec to avoid borrowing issues
+        let temp_updates_copy = self.temp_updates.clone();
+        for (x, y, temp) in temp_updates_copy {
+            if let Some(particle) = self.get_particle_mut(x, y) {
+                if particle.material != MaterialType::Empty {
+                    particle.temperature.set(temp);
+                }
+            }
+        }
     }
     
     fn reset_simulation_step(&mut self) {
@@ -322,79 +432,209 @@ impl SandSimulation {
         }
     }
     
+    // Process a single particle
     fn process_particle(&mut self, x: usize, y: usize) {
-        // Get a copy of the particle for processing
+        // First, get the particle and check if it exists
         let particle_opt = self.get_particle(x, y);
-        
-        if let Some(mut particle) = particle_opt {
-            // Mark as processed to avoid double processing
-            particle.processed = true;
-            self.set_particle(x, y, particle.clone());
-            
-            // Delta time (assuming 60 FPS)
-            let delta_time = 1.0 / 60.0;
-            
-            // 1. Handle lifespan and burnout
-            if self.reactions.handle_lifespan_and_burnout(
-                &mut particle,
-                x,
-                y,
-                delta_time,
-                |x, y| self.get_particle(x, y),
-                |x, y, p| self.set_particle(x, y, p),
-            ) {
-                return; // Particle was replaced
-            }
-            
-            // 2. Update temperature
-            self.temperature.update_particle_temperature(
-                &mut particle,
-                x,
-                y,
-                delta_time,
-                |x, y| self.get_particle(x, y),
-            );
-            
-            // 3. Handle state changes and effects
-            if self.reactions.handle_state_changes_and_effects(
-                &mut particle,
-                x,
-                y,
-                delta_time,
-                |x, y| self.get_particle(x, y),
-                |x, y, p| self.set_particle(x, y, p),
-                |x, y| self.add_active_cell(x, y),
-            ) {
-                return; // Particle was replaced
-            }
-            
-            // 4. Increment time in state
-            particle.increment_time_in_state(delta_time);
-            
-            // 5. Handle movement
-            if self.physics.handle_movement(
-                &mut particle,
-                x,
-                y,
-                |x, y| self.get_particle(x, y),
-                |x, y, p| {
-                    // Clear the original position
-                    self.set_empty(x, y);
-                    // Set the new position
-                    self.set_particle(x, y, p)
-                },
-                |x1, y1, x2, y2| self.swap_particles(x1, y1, x2, y2),
-            ) {
-                // Movement handled, particle updated
-                return;
-            }
-            
-            // Update the particle if it was modified but not moved
-            self.set_particle(x, y, particle);
-            
-            // Add to next active cells
-            self.add_active_cell(x, y);
+        if particle_opt.is_none() {
+            return;
         }
+        
+        let mut particle = particle_opt.unwrap();
+        
+        // Mark as processed to avoid double processing
+        particle.processed = true;
+        self.set_particle(x, y, particle.clone());
+        
+        // Delta time (assuming 60 FPS)
+        let delta_time = 1.0 / 60.0;
+        
+        // --------------------
+        // STEP 1: Handle lifespan and burnout
+        // --------------------
+        
+        // Check if particle has reached the end of its life
+        if particle.update_life(delta_time) {
+            // Get the successor material and temperature
+            let (new_material, new_temp) = particle.get_successor_material();
+            
+            // Create new particle if needed
+            if new_material != MaterialType::Empty {
+                let mut new_particle = Particle::new(new_material, new_temp);
+                new_particle.processed = true;
+                
+                if self.set_particle(x, y, new_particle) {
+                    return; // Particle was replaced
+                }
+            } else {
+                // Just remove the particle (empty)
+                let empty = Particle::new(MaterialType::Empty, AMBIENT_TEMP);
+                if self.set_particle(x, y, empty) {
+                    return; // Particle was removed
+                }
+            }
+        }
+        
+        // --------------------
+        // STEP 2: Handle state changes and other reactions
+        // --------------------
+        
+        // Increment time in state
+        particle.increment_time_in_state(delta_time);
+        
+        // Handle state changes - first collect local neighbors
+        let neighbors = self.collect_neighbors(x, y);
+        
+        // Create a buffer to track changes
+        let mut changes = Vec::new();
+        let mut active_cells_to_add = Vec::new();
+        
+        // Helper function to get particle from neighbors
+        let get_particle_fn = |nx: usize, ny: usize| {
+            for &((x1, y1), ref p) in &neighbors {
+                if x1 == nx && y1 == ny {
+                    return p.clone();
+                }
+            }
+            None
+        };
+        
+        // Helper to track changes instead of applying them immediately
+        let set_particle_fn = |nx: usize, ny: usize, p: Particle| {
+            changes.push((nx, ny, p));
+            true
+        };
+        
+        let add_active_cell_fn = |nx: usize, ny: usize| {
+            active_cells_to_add.push((nx, ny));
+        };
+        
+        // Handle state changes
+        let state_changed = self.reactions.handle_state_changes_and_effects(
+            &mut particle,
+            x,
+            y,
+            delta_time,
+            get_particle_fn,
+            set_particle_fn,
+            add_active_cell_fn,
+        );
+        
+        // If we need to make changes, do them now
+        for (nx, ny, p) in changes {
+            self.set_particle(nx, ny, p);
+        }
+        
+        // Add active cells
+        for (nx, ny) in active_cells_to_add {
+            self.add_active_cell(nx, ny);
+        }
+        
+        // If state changed, the particle was replaced - stop processing
+        if state_changed {
+            return;
+        }
+        
+        // --------------------
+        // STEP 3: Handle movement
+        // --------------------
+        
+        // Handle movement avoiding borrow checker issues
+        self.handle_particle_movement(x, y, &mut particle);
+        
+        // If we reach here, the particle was updated but not moved
+        // Update it in place and mark it as active for the next cycle
+        self.set_particle(x, y, particle);
+        self.add_active_cell(x, y);
+    }
+    
+    // Helper to collect neighbors of a cell without borrow checker issues
+    fn collect_neighbors(&self, x: usize, y: usize) -> Vec<((usize, usize), Option<Particle>)> {
+        let mut neighbors = Vec::with_capacity(9);
+        
+        for dy in -1..=1 {
+            for dx in -1..=1 {
+                let nx = x as isize + dx;
+                let ny = y as isize + dy;
+                if nx >= 0 && nx < GRID_WIDTH as isize && 
+                   ny >= 0 && ny < GRID_HEIGHT as isize {
+                    let p = self.get_particle(nx as usize, ny as usize);
+                    neighbors.push(((nx as usize, ny as usize), p));
+                }
+            }
+        }
+        
+        neighbors
+    }
+    
+    // Handle particle movement in a separate function to avoid borrow errors
+    fn handle_particle_movement(&mut self, x: usize, y: usize, particle: &mut Particle) -> bool {
+        // First collect neighbors to avoid borrowing issues
+        let neighbors = self.collect_neighbors(x, y);
+        
+        // Helper function to get particle from neighbors
+        let get_particle_fn = |nx: usize, ny: usize| {
+            for &((x1, y1), ref p) in &neighbors {
+                if x1 == nx && y1 == ny {
+                    return p.clone();
+                }
+            }
+            None
+        };
+        
+        // Create a single movement command to apply after physics calculation
+        let mut move_command: Option<(usize, usize, Particle)> = None;
+        let mut swap_command: Option<(usize, usize, usize, usize)> = None;
+        
+        // Custom set_particle that just records the command
+        let set_particle_fn = |nx: usize, ny: usize, p: Particle| {
+            if nx == x && ny == y {
+                // Simple update in place
+                move_command = Some((nx, ny, p));
+                true
+            } else {
+                // Movement to a new location
+                move_command = Some((nx, ny, p));
+                true
+            }
+        };
+        
+        // Custom swap_particles that just records the command
+        let swap_particles_fn = |x1: usize, y1: usize, x2: usize, y2: usize| {
+            swap_command = Some((x1, y1, x2, y2));
+            true
+        };
+        
+        // Now perform the physics calculation (without modifying the grid)
+        let movement_result = self.physics.handle_movement(
+            particle,
+            x, 
+            y,
+            get_particle_fn,
+            set_particle_fn,
+            swap_particles_fn
+        );
+        
+        // Apply the movement based on the commands recorded
+        if let Some((nx, ny, p)) = move_command {
+            if nx != x || ny != y {
+                // Only clear original if new position is successfully set
+                if self.set_particle(nx, ny, p) {
+                    self.set_empty(x, y);
+                    return true;
+                }
+            } else {
+                // Simple update in place
+                self.set_particle(nx, ny, p);
+            }
+        }
+        
+        if let Some((x1, y1, x2, y2)) = swap_command {
+            self.swap_particles(x1, y1, x2, y2);
+            return true;
+        }
+        
+        movement_result
     }
     
     fn add_active_cell(&mut self, x: usize, y: usize) {
@@ -417,7 +657,7 @@ impl SandSimulation {
         let is_fluid = material == MaterialType::Water || material == MaterialType::Lava;
         
         // Add immediate neighbors (cardinal directions)
-        for (dy, dx) in [(-1, 0), (0, -1), (0, 1), (1, 0)] {
+        for &(dy, dx) in &[(-1, 0), (0, -1), (0, 1), (1, 0)] {
             let nx = match (x as isize + dx).try_into() {
                 Ok(val) if val < GRID_WIDTH => val,
                 _ => continue,
@@ -439,8 +679,8 @@ impl SandSimulation {
         if is_fluid {
             let radius = if material == MaterialType::Water { 3 } else { 2 };
             
-            for dy in -radius..=radius {
-                for dx in -radius..=radius {
+            for dy in (-radius as isize)..=(radius as isize) {
+                for dx in (-radius as isize)..=(radius as isize) {
                     // Skip already added cardinal neighbors and center
                     if (dx == 0 && dy == 0) || 
                        (dx == 0 && dy == -1) || 
@@ -452,7 +692,7 @@ impl SandSimulation {
                     
                     // Use manhattan distance to prioritize closer cells
                     let manhattan_dist = dx.abs() + dy.abs();
-                    if manhattan_dist > radius {
+                    if manhattan_dist > radius as isize {
                         continue;
                     }
                     
@@ -540,12 +780,14 @@ impl SandSimulation {
                 let x = self.rng.gen_range(0..GRID_WIDTH);
                 let y = self.rng.gen_range(0..GRID_HEIGHT);
                 
+                // Extract RNG values first to avoid borrowing self multiple times
+                let rx = self.rng.gen::<f32>() - 0.5;
+                let ry = self.rng.gen::<f32>() - 0.5;
+                
                 if let Some(particle) = self.get_particle_mut(x, y) {
                     if particle.material != MaterialType::Empty && 
                        particle.material != MaterialType::Generator {
                         // Add random velocity
-                        let rx = self.rng.gen::<f32>() - 0.5;
-                        let ry = self.rng.gen::<f32>() - 0.5;
                         particle.vel_x += rx * 0.2;
                         particle.vel_y += ry * 0.2;
                         

@@ -225,8 +225,8 @@ impl TemperatureSystem {
         }
     }
     
-    // Optimize temperature update for active area
-    pub fn update_temperatures_optimized(
+    // Collect temperature updates for later application to avoid borrow issues
+    pub fn collect_temperature_updates(
         &mut self,
         min_x: usize,
         max_x: usize,
@@ -234,16 +234,13 @@ impl TemperatureSystem {
         max_y: usize,
         delta_time: f32,
         get_particle: impl Fn(usize, usize) -> Option<crate::particle::Particle>,
-        get_particle_mut: impl FnMut(usize, usize) -> Option<&mut crate::particle::Particle>,
+        updates: &mut Vec<(usize, usize, f32)>, // (x, y, new_temp)
     ) {
         // Expand bounds slightly to include heat conduction beyond active area
         let x_start = min_x.saturating_sub(5);
         let x_end = (max_x + 5).min(GRID_WIDTH);
         let y_start = min_y.saturating_sub(5);
         let y_end = (max_y + 5).min(GRID_HEIGHT);
-        
-        // Store temperatures in a buffer to avoid issues with updating while processing
-        let mut temp_buffer = vec![AMBIENT_TEMP; (x_end - x_start) * (y_end - y_start)];
         
         // First pass: calculate new temperatures
         for y in y_start..y_end {
@@ -254,16 +251,12 @@ impl TemperatureSystem {
                         continue;
                     }
                     
-                    // Calculate buffer index
-                    let idx = (y - y_start) * (x_end - x_start) + (x - x_start);
-                    
                     // Get current temperature
                     let current_temp = particle.temperature.get();
                     
                     // Skip rigid/immovable materials if not burning/hot
                     if particle.material == MaterialType::Stone && 
                        (current_temp - AMBIENT_TEMP).abs() < 10.0 {
-                        temp_buffer[idx] = current_temp;
                         continue;
                     }
                     
@@ -338,34 +331,22 @@ impl TemperatureSystem {
                         _ => {}
                     }
                     
-                    // Store in buffer
-                    temp_buffer[idx] = new_temp;
-                } else {
-                    // Set ambient temperature for empty/non-existent cells
-                    let idx = (y - y_start) * (x_end - x_start) + (x - x_start);
-                    temp_buffer[idx] = AMBIENT_TEMP;
-                }
-            }
-        }
-        
-        // Second pass: apply new temperatures
-        let mut get_particle_mut = get_particle_mut;
-        for y in y_start..y_end {
-            for x in x_start..x_end {
-                let idx = (y - y_start) * (x_end - x_start) + (x - x_start);
-                let new_temp = temp_buffer[idx];
-                
-                if let Some(particle) = get_particle_mut(x, y) {
-                    if particle.material != MaterialType::Empty {
-                        let current_temp = particle.temperature.get();
-                        
-                        // Only update if temperature changed significantly
-                        if (new_temp - current_temp).abs() > 0.01 {
-                            particle.temperature.set(new_temp);
-                        }
+                    // Only update if temperature changed significantly
+                    if (new_temp - current_temp).abs() > 0.01 {
+                        updates.push((x, y, new_temp));
                     }
                 }
             }
+        }
+    }
+    
+    // Apply temperature updates collected from collect_temperature_updates
+    pub fn apply_temperature_updates<F>(
+        updates: &[(usize, usize, f32)],
+        mut update_fn: F,
+    ) where F: FnMut(usize, usize, f32) {
+        for &(x, y, temp) in updates {
+            update_fn(x, y, temp);
         }
     }
 }

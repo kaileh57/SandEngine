@@ -201,7 +201,7 @@ impl PhysicsEngine {
         particle: &Particle,
         x: usize,
         y: usize,
-        vert_dir: isize,
+        _vert_dir: isize, // Fixed: added underscore to unused parameter
         get_particle: impl Fn(usize, usize) -> Option<Particle>,
         set_particle: &mut impl FnMut(usize, usize, Particle) -> bool,
     ) -> bool {
