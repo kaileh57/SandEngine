@@ -1,0 +1,476 @@
+// material_properties.rs - Enhanced material properties system
+
+use crate::constants::*;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum MaterialType {
+    Empty,
+    Sand,
+    Water,
+    Stone,
+    Plant,
+    Fire,
+    Lava,
+    Glass,
+    Steam,
+    Smoke,
+    Ice,
+    Wood,
+    Coal,
+    Oil,
+    Acid,
+    Gunpowder,
+    ToxicGas,
+    Ash,
+    Fuse,
+    Generator,
+    Eraser,
+}
+
+pub struct MaterialProperties {
+    pub name: &'static str,
+    pub density: f32,
+    pub conductivity: f32,
+    pub flammable: bool,
+    pub viscosity: f32,
+    pub color: [u8; 4],
+    
+    // Optional properties
+    pub melt_temp: Option<f32>,
+    pub boil_temp: Option<f32>,
+    pub freeze_temp: Option<f32>,
+    pub ignition_temp: Option<f32>,
+    pub heat_generation: Option<f32>,
+    pub corrosive_power: Option<f32>,
+    pub explosive_yield: Option<usize>,
+}
+
+impl MaterialType {
+    pub fn to_u8(self) -> u8 {
+        match self {
+            MaterialType::Empty => 0,
+            MaterialType::Sand => 1,
+            MaterialType::Water => 2,
+            MaterialType::Stone => 3,
+            MaterialType::Plant => 4,
+            MaterialType::Fire => 5,
+            MaterialType::Lava => 6,
+            MaterialType::Glass => 7,
+            MaterialType::Steam => 8,
+            MaterialType::Smoke => 9,
+            MaterialType::Ice => 10,
+            MaterialType::Wood => 11,
+            MaterialType::Coal => 12,
+            MaterialType::Oil => 13,
+            MaterialType::Acid => 14,
+            MaterialType::Gunpowder => 15,
+            MaterialType::ToxicGas => 16,
+            MaterialType::Ash => 17,
+            MaterialType::Fuse => 18,
+            MaterialType::Generator => 19,
+            MaterialType::Eraser => 99,
+        }
+    }
+    
+    pub fn from_u8(value: u8) -> Self {
+        match value {
+            0 => MaterialType::Empty,
+            1 => MaterialType::Sand,
+            2 => MaterialType::Water,
+            3 => MaterialType::Stone,
+            4 => MaterialType::Plant,
+            5 => MaterialType::Fire,
+            6 => MaterialType::Lava,
+            7 => MaterialType::Glass,
+            8 => MaterialType::Steam,
+            9 => MaterialType::Smoke,
+            10 => MaterialType::Ice,
+            11 => MaterialType::Wood,
+            12 => MaterialType::Coal,
+            13 => MaterialType::Oil,
+            14 => MaterialType::Acid,
+            15 => MaterialType::Gunpowder,
+            16 => MaterialType::ToxicGas,
+            17 => MaterialType::Ash,
+            18 => MaterialType::Fuse,
+            19 => MaterialType::Generator,
+            99 => MaterialType::Eraser,
+            _ => MaterialType::Empty,
+        }
+    }
+    
+    pub fn get_name(self) -> &'static str {
+        self.get_properties().name
+    }
+    
+    pub fn get_color(self) -> [u8; 4] {
+        self.get_properties().color
+    }
+    
+    pub fn get_properties(self) -> MaterialProperties {
+        match self {
+            MaterialType::Empty => MaterialProperties {
+                name: "Empty",
+                density: 0.0,
+                conductivity: 0.1,
+                flammable: false,
+                viscosity: 0.0,
+                color: C_EMPTY,
+                melt_temp: None,
+                boil_temp: None,
+                freeze_temp: None,
+                ignition_temp: None,
+                heat_generation: None,
+                corrosive_power: None,
+                explosive_yield: None,
+            },
+            MaterialType::Sand => MaterialProperties {
+                name: "Sand",
+                density: 5.0,
+                conductivity: 0.3,
+                flammable: false,
+                viscosity: 0.0,
+                color: C_SAND,
+                melt_temp: Some(1500.0),
+                boil_temp: None,
+                freeze_temp: None,
+                ignition_temp: None,
+                heat_generation: None,
+                corrosive_power: None,
+                explosive_yield: None,
+            },
+            MaterialType::Water => MaterialProperties {
+                name: "Water",
+                density: 3.0,
+                conductivity: 0.6,
+                flammable: false,
+                viscosity: 1.0,
+                color: C_WATER,
+                melt_temp: None,
+                boil_temp: Some(100.0),
+                freeze_temp: Some(0.0),
+                ignition_temp: None,
+                heat_generation: None,
+                corrosive_power: None,
+                explosive_yield: None,
+            },
+            MaterialType::Stone => MaterialProperties {
+                name: "Stone",
+                density: 10.0,
+                conductivity: 0.2,
+                flammable: false,
+                viscosity: 0.0,
+                color: C_STONE,
+                melt_temp: None,
+                boil_temp: None,
+                freeze_temp: None,
+                ignition_temp: None,
+                heat_generation: None,
+                corrosive_power: None,
+                explosive_yield: None,
+            },
+            MaterialType::Plant => MaterialProperties {
+                name: "Plant",
+                density: 0.1,
+                conductivity: 0.1,
+                flammable: true,
+                viscosity: 0.0,
+                color: C_PLANT,
+                melt_temp: Some(200.0),
+                boil_temp: None,
+                freeze_temp: None,
+                ignition_temp: Some(150.0),
+                heat_generation: None,
+                corrosive_power: None,
+                explosive_yield: None,
+            },
+            MaterialType::Fire => MaterialProperties {
+                name: "Fire",
+                density: -2.0,
+                conductivity: 0.9,
+                flammable: false,
+                viscosity: 0.0,
+                color: C_FIRE,
+                melt_temp: None,
+                boil_temp: None,
+                freeze_temp: None,
+                ignition_temp: None,
+                heat_generation: Some(10.0),
+                corrosive_power: None,
+                explosive_yield: None,
+            },
+            MaterialType::Lava => MaterialProperties {
+                name: "Lava",
+                density: 8.0,
+                conductivity: 0.8,
+                flammable: false,
+                viscosity: 5.0,
+                color: C_LAVA,
+                melt_temp: Some(1800.0),
+                boil_temp: None,
+                freeze_temp: Some(1000.0),
+                ignition_temp: None,
+                heat_generation: Some(5.0),
+                corrosive_power: None,
+                explosive_yield: None,
+            },
+            MaterialType::Glass => MaterialProperties {
+                name: "Glass",
+                density: 9.0,
+                conductivity: 0.4,
+                flammable: false,
+                viscosity: 0.0,
+                color: C_GLASS,
+                melt_temp: Some(1800.0),
+                boil_temp: None,
+                freeze_temp: None,
+                ignition_temp: None,
+                heat_generation: None,
+                corrosive_power: None,
+                explosive_yield: None,
+            },
+            MaterialType::Steam => MaterialProperties {
+                name: "Steam",
+                density: -5.0,
+                conductivity: 0.7,
+                flammable: false,
+                viscosity: 0.0,
+                color: C_STEAM,
+                melt_temp: None,
+                boil_temp: None,
+                freeze_temp: Some(99.0),
+                ignition_temp: None,
+                heat_generation: None,
+                corrosive_power: None,
+                explosive_yield: None,
+            },
+            MaterialType::Smoke => MaterialProperties {
+                name: "Smoke",
+                density: -3.0,
+                conductivity: 0.1,
+                flammable: false,
+                viscosity: 0.0,
+                color: C_SMOKE,
+                melt_temp: None,
+                boil_temp: None,
+                freeze_temp: None,
+                ignition_temp: None,
+                heat_generation: None,
+                corrosive_power: None,
+                explosive_yield: None,
+            },
+            MaterialType::Ice => MaterialProperties {
+                name: "Ice",
+                density: 2.9,
+                conductivity: 0.01,
+                flammable: false,
+                viscosity: 0.0,
+                color: C_ICE,
+                melt_temp: Some(1.0),
+                boil_temp: None,
+                freeze_temp: None,
+                ignition_temp: None,
+                heat_generation: None,
+                corrosive_power: None,
+                explosive_yield: None,
+            },
+            MaterialType::Wood => MaterialProperties {
+                name: "Wood",
+                density: 0.7,
+                conductivity: 0.2,
+                flammable: true,
+                viscosity: 0.0,
+                color: C_WOOD,
+                melt_temp: Some(400.0),
+                boil_temp: None,
+                freeze_temp: None,
+                ignition_temp: Some(200.0),
+                heat_generation: None,
+                corrosive_power: None,
+                explosive_yield: None,
+            },
+            MaterialType::Coal => MaterialProperties {
+                name: "Coal",
+                density: 4.0,
+                conductivity: 0.2,
+                flammable: true,
+                viscosity: 0.0,
+                color: C_COAL,
+                melt_temp: Some(800.0),
+                boil_temp: None,
+                freeze_temp: None,
+                ignition_temp: Some(250.0),
+                heat_generation: None,
+                corrosive_power: None,
+                explosive_yield: None,
+            },
+            MaterialType::Oil => MaterialProperties {
+                name: "Oil",
+                density: 2.0,
+                conductivity: 0.4,
+                flammable: true,
+                viscosity: 3.0,
+                color: C_OIL,
+                melt_temp: None,
+                boil_temp: Some(300.0),
+                freeze_temp: None,
+                ignition_temp: Some(200.0),
+                heat_generation: None,
+                corrosive_power: None,
+                explosive_yield: None,
+            },
+            MaterialType::Acid => MaterialProperties {
+                name: "Acid",
+                density: 3.5,
+                conductivity: 0.5,
+                flammable: false,
+                viscosity: 1.0,
+                color: C_ACID,
+                melt_temp: None,
+                boil_temp: Some(200.0),
+                freeze_temp: None,
+                ignition_temp: None,
+                heat_generation: None,
+                corrosive_power: Some(0.15),
+                explosive_yield: None,
+            },
+            MaterialType::Gunpowder => MaterialProperties {
+                name: "Gunpowder",
+                density: 4.5,
+                conductivity: 0.1,
+                flammable: true,
+                viscosity: 0.0,
+                color: C_GUNPOWDER,
+                melt_temp: None,
+                boil_temp: None,
+                freeze_temp: None,
+                ignition_temp: Some(150.0),
+                heat_generation: None,
+                corrosive_power: None,
+                explosive_yield: Some(4),
+            },
+            MaterialType::ToxicGas => MaterialProperties {
+                name: "Toxic Gas",
+                density: -4.0,
+                conductivity: 0.1,
+                flammable: true,
+                viscosity: 0.0,
+                color: C_TOXIC_GAS,
+                melt_temp: None,
+                boil_temp: None,
+                freeze_temp: None,
+                ignition_temp: None,
+                heat_generation: None,
+                corrosive_power: Some(0.02),
+                explosive_yield: None,
+            },
+            MaterialType::Ash => MaterialProperties {
+                name: "Ash",
+                density: 4.8,
+                conductivity: 0.2,
+                flammable: false,
+                viscosity: 0.0,
+                color: C_ASH,
+                melt_temp: None,
+                boil_temp: None,
+                freeze_temp: None,
+                ignition_temp: None,
+                heat_generation: None,
+                corrosive_power: None,
+                explosive_yield: None,
+            },
+            MaterialType::Fuse => MaterialProperties {
+                name: "Fuse",
+                density: 5.0,
+                conductivity: 0.2,
+                flammable: true,
+                viscosity: 0.0,
+                color: C_FUSE,
+                melt_temp: Some(150.0),
+                boil_temp: None,
+                freeze_temp: None,
+                ignition_temp: Some(150.0),
+                heat_generation: None,
+                corrosive_power: None,
+                explosive_yield: None,
+            },
+            MaterialType::Generator => MaterialProperties {
+                name: "Generator",
+                density: 100.0, // Immovable
+                conductivity: 0.9,
+                flammable: false,
+                viscosity: 0.0,
+                color: C_GENERATOR,
+                melt_temp: None,
+                boil_temp: None,
+                freeze_temp: None,
+                ignition_temp: None,
+                heat_generation: Some(5.0),
+                corrosive_power: None,
+                explosive_yield: None,
+            },
+            MaterialType::Eraser => MaterialProperties {
+                name: "Eraser",
+                density: 0.0,
+                conductivity: 0.0,
+                flammable: false,
+                viscosity: 0.0,
+                color: C_ERASER,
+                melt_temp: None,
+                boil_temp: None,
+                freeze_temp: None,
+                ignition_temp: None,
+                heat_generation: None,
+                corrosive_power: None,
+                explosive_yield: None,
+            },
+        }
+    }
+    
+    // Add helper methods to check material properties
+    pub fn is_liquid(&self) -> bool {
+        matches!(self, 
+            MaterialType::Water | 
+            MaterialType::Lava | 
+            MaterialType::Acid |
+            MaterialType::Oil)
+    }
+    
+    pub fn is_gas(&self) -> bool {
+        matches!(self, 
+            MaterialType::Steam | 
+            MaterialType::Smoke | 
+            MaterialType::ToxicGas |
+            MaterialType::Fire)
+    }
+    
+    pub fn is_powder(&self) -> bool {
+        matches!(self, 
+            MaterialType::Sand | 
+            MaterialType::Ash | 
+            MaterialType::Coal |
+            MaterialType::Gunpowder)
+    }
+    
+    pub fn is_rigid_solid(&self) -> bool {
+        matches!(self, 
+            MaterialType::Stone | 
+            MaterialType::Glass | 
+            MaterialType::Ice |
+            MaterialType::Wood)
+    }
+    
+    // Helper method to convert between material types
+    pub fn from_material(other: crate::material::MaterialType) -> Self {
+        match other {
+            crate::material::MaterialType::Empty => MaterialType::Empty,
+            crate::material::MaterialType::Sand => MaterialType::Sand,
+            crate::material::MaterialType::Water => MaterialType::Water,
+            crate::material::MaterialType::Stone => MaterialType::Stone,
+            crate::material::MaterialType::Plant => MaterialType::Plant,
+            crate::material::MaterialType::Fire => MaterialType::Fire,
+            crate::material::MaterialType::Lava => MaterialType::Lava,
+            crate::material::MaterialType::Eraser => MaterialType::Eraser,
+        }
+    }
+}

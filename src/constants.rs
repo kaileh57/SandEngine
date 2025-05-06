@@ -26,6 +26,21 @@ pub const C_UI_BUTTON_BORDER: [u8; 4] = [160, 160, 180, 255];
 pub const C_UI_CLEAR_BUTTON: [u8; 4] = [180, 60, 60, 255];
 pub const C_UI_CLEAR_BUTTON_BORDER: [u8; 4] = [220, 100, 100, 255];
 
+// New colors for additional materials
+pub const C_GLASS: [u8; 4] = [210, 230, 240, 255];
+pub const C_STEAM: [u8; 4] = [180, 180, 190, 255];
+pub const C_SMOKE: [u8; 4] = [150, 150, 150, 255];
+pub const C_ICE: [u8; 4] = [170, 200, 255, 255];
+pub const C_WOOD: [u8; 4] = [139, 69, 19, 255];
+pub const C_COAL: [u8; 4] = [40, 40, 40, 255];
+pub const C_OIL: [u8; 4] = [80, 70, 20, 255];
+pub const C_ACID: [u8; 4] = [100, 255, 100, 255];
+pub const C_GUNPOWDER: [u8; 4] = [60, 60, 70, 255];
+pub const C_TOXIC_GAS: [u8; 4] = [150, 200, 150, 255];
+pub const C_ASH: [u8; 4] = [90, 90, 90, 255];
+pub const C_FUSE: [u8; 4] = [100, 80, 60, 255];
+pub const C_GENERATOR: [u8; 4] = [255, 0, 0, 255];
+
 // Temperature constants
 pub const AMBIENT_TEMP: f32 = 20.0;
 pub const MAX_TEMP: f32 = 3000.0;
@@ -62,3 +77,20 @@ pub const STONE_RIGIDITY: f32 = 0.9;  // Stone has high rigidity (rarely flows)
 pub const PLANT_GRAVITY: f32 = 0.35;  // Plant falls a bit slower than sand
 pub const PLANT_MAX_VELOCITY: f32 = 2.8;  // Plant has moderate terminal velocity
 pub const PLANT_RIGIDITY: f32 = 0.6;  // Plant has moderate rigidity
+
+// New constants for materials and reactions
+pub const FIRE_LIFESPAN: f32 = 1.0;  // Fire lasts for ~1 second
+pub const STEAM_LIFESPAN: f32 = 10.0;  // Steam lasts for ~10 seconds
+pub const SMOKE_LIFESPAN: f32 = 3.0;  // Smoke lasts for ~3 seconds
+pub const FUSE_BURN_LIFESPAN: f32 = 4.0;  // Burning fuse lasts for ~4 seconds
+pub const TARGET_DT_SCALING: f32 = 60.0;  // Target delta time scaling for 60 FPS
+pub const GAS_UPDRAFT: f32 = 0.2;  // How fast gases rise
+pub const WATER_COOLING_FACTOR: f32 = 80.0;  // How much water cools fire
+pub const PHASE_CHANGE_TEMP_BUFFER: f32 = 5.0;  // Temp buffer for phase changes
+pub const MIN_STATE_SECONDS: f32 = 10.0;  // Min time required in a state before certain changes
+pub const HIGH_INERTIA_DAMPING: f32 = 0.2;  // Damping factor for high inertia materials
+pub const PLANT_GROWTH_CHANCE_PER_SEC: f32 = 0.09;  // Chance for plant to grow per second
+pub const GUNPOWDER_YIELD: usize = 4;  // Explosion radius for gunpowder
+pub const CONDENSATION_Y_LIMIT: usize = 5;  // Height limit for guaranteed condensation
+pub const CONDENSATION_CHANCE_ANYWHERE_PER_SEC: f32 = 0.006;  // Chance for condensation elsewhere
+pub const ACID_GAS_TEMP_FACTOR: f32 = 0.8;  // Temperature factor for gas created by acid

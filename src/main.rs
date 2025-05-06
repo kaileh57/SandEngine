@@ -2,8 +2,16 @@ mod simulation;
 mod ui;
 mod ui_components;
 mod constants;
+mod material_properties;
+mod particle;
+mod physics;
+mod reactions;
+mod temperature;
+mod material_converter;
+
+// Keep the original material.rs import only for UI compatibility
+// This will be removed completely in a future update
 mod material;
-mod text_renderer;
 
 use pixels::{Error, Pixels, SurfaceTexture};
 use winit::dpi::LogicalSize;
@@ -15,7 +23,8 @@ use winit::event::WindowEvent;
 use crate::simulation::SandSimulation;
 use crate::ui::UI;
 use crate::constants::{GRID_WIDTH, GRID_HEIGHT, CELL_SIZE, WIDTH, HEIGHT, WINDOW_WIDTH};
-use crate::material::MaterialType;
+use crate::material_properties::MaterialType;
+use crate::material_converter::{to_new_material, to_old_material};
 
 fn main() -> Result<(), Error> {
     let event_loop = EventLoop::new();
@@ -82,6 +91,22 @@ fn main() -> Result<(), Error> {
                                 },
                                 VirtualKeyCode::E => {
                                     simulation.current_material = MaterialType::Eraser;
+                                },
+                                // New keybindings for advanced materials
+                                VirtualKeyCode::G => {
+                                    simulation.current_material = MaterialType::Glass;
+                                },
+                                VirtualKeyCode::I => {
+                                    simulation.current_material = MaterialType::Ice;
+                                },
+                                VirtualKeyCode::W => {
+                                    simulation.current_material = MaterialType::Wood;
+                                },
+                                VirtualKeyCode::A => {
+                                    simulation.current_material = MaterialType::Acid;
+                                },
+                                VirtualKeyCode::F => {
+                                    simulation.current_material = MaterialType::Fuse;
                                 },
                                 _ => (),
                             }
