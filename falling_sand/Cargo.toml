@@ -1,0 +1,15 @@
+[package]
+name = "falling_sand"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Window and graphics
+winit = "0.28"
+pixels = "0.11.0"
+# Random number generation
+rand = "0.8"
+# Profiling for optimizations
+profiling = "1.0"
+# Parallel processing
+rayon = "1.7"
