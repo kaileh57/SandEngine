@@ -1,10 +1,8 @@
-workspace = { members = ["sand_game"] }
 [package]
-name = "sand_simulation_engine"
+name = "sand_game"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-rand = { version = "0.8", features = ["std_rng"] }
