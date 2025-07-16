@@ -31,3 +31,43 @@ node_modules/
 # Temporary files
 *.tmp
 *.temp
+
+# Game-specific files
+saves/
+worlds/
+config/
+screenshots/
+crash-reports/
+logs/
+
+# Asset cache
+assets/cache/
+*.cache
+
+# Generated files
+generated/
+shaders/compiled/
+
+# Performance profiling
+*.prof
+flamegraph.svg
+perf.data*
+
+# Networking
+*.pcap
+
+# Testing
+test_worlds/
+benchmark_results/
+
+# Platform-specific build files
+*.exe
+*.dll
+*.so
+*.dylib
+*.a
+*.lib
+
+# Documentation build
+docs/build/
+book/

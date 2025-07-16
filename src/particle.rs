@@ -5,6 +5,18 @@ use serde::{Deserialize, Serialize};
 const AMBIENT_TEMP: f32 = 20.0;
 const MAX_TEMP: f32 = 3000.0;
 
+#[derive(Debug, Clone)]
+struct CachedProperties {
+    density: f32,
+    conductivity: f32,
+    flammability: f32,
+    viscosity: f32,
+    is_liquid: bool,
+    is_powder: bool,
+    is_gas: bool,
+    is_rigid_solid: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Particle {
     pub x: usize,
@@ -22,6 +34,8 @@ pub struct Particle {
     pub settled_frames: u8, // How many frames it's been stationary
     #[serde(skip)]
     color_cache: Option<[u8; 3]>,
+    #[serde(skip)]
+    properties_cache: Option<CachedProperties>,
 }
 
 impl Particle {
@@ -50,6 +64,7 @@ impl Particle {
             dynamic: Self::is_material_dynamic(material_type),
             settled_frames: 0,
             color_cache: None,
+            properties_cache: None,
         };
         particle.init_properties();
         particle
@@ -74,14 +89,36 @@ impl Particle {
         self.life = props.life_seconds;
         self.time_in_state = 0.0;
         self.invalidate_color_cache();
+        self.invalidate_properties_cache();
     }
 
     pub fn get_properties(&self) -> Material {
         get_material_properties(self.material_type)
     }
 
+    pub fn get_cached_properties(&mut self) -> &CachedProperties {
+        if self.properties_cache.is_none() {
+            let props = get_material_properties(self.material_type);
+            self.properties_cache = Some(CachedProperties {
+                density: props.density,
+                conductivity: props.conductivity,
+                flammability: props.flammability,
+                viscosity: props.viscosity,
+                is_liquid: props.is_liquid(self.material_type),
+                is_powder: props.is_powder(self.material_type),
+                is_gas: props.is_gas(self.material_type),
+                is_rigid_solid: props.is_rigid_solid(self.material_type),
+            });
+        }
+        self.properties_cache.as_ref().unwrap()
+    }
+
     pub fn invalidate_color_cache(&mut self) {
         self.color_cache = None;
+    }
+
+    pub fn invalidate_properties_cache(&mut self) {
+        self.properties_cache = None;
     }
 
     pub fn get_color(&mut self) -> [u8; 3] {
@@ -169,6 +206,10 @@ impl Particle {
         // Update dynamic flag when material changes
         self.dynamic = Self::is_material_dynamic(new_type);
         self.settled_frames = 0; // Reset settled counter on material change
+        
+        // Invalidate caches before changing properties
+        self.invalidate_color_cache();
+        self.invalidate_properties_cache();
 
         self.init_properties();
 

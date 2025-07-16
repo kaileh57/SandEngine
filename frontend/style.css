@@ -110,3 +110,197 @@ body {
     color: white;
     font-weight: bold;
 }
+
+#palette button.has-indicators::after {
+    content: attr(data-indicators);
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    font-size: 8px;
+    background-color: rgba(0, 0, 0, 0.7);
+    color: white;
+    padding: 1px 3px;
+    border-radius: 2px;
+    line-height: 1;
+}
+
+#palette button {
+    position: relative;
+}
+
+.material-group-label {
+    grid-column: 1 / -1;
+    font-size: 11px;
+    font-weight: bold;
+    color: #ccc;
+    margin-top: 10px;
+    margin-bottom: 3px;
+    padding: 2px 5px;
+    background-color: #333;
+    border-radius: 3px;
+}
+
+.material-group-label:first-child {
+    margin-top: 0;
+}
+
+/* Structure panel styles */
+.panel-section {
+    margin-bottom: 20px;
+    padding: 15px;
+    background-color: #333;
+    border-radius: 5px;
+    border: 1px solid #555;
+}
+
+.panel-section h3 {
+    margin: 0 0 10px 0;
+    color: #fff;
+    font-size: 14px;
+}
+
+.mode-button {
+    width: 100%;
+    padding: 8px;
+    background-color: #555;
+    color: white;
+    border: 1px solid #777;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 12px;
+    margin-bottom: 10px;
+    border-radius: 3px;
+}
+
+.mode-button:hover {
+    background-color: #666;
+}
+
+.mode-button.active {
+    background-color: #ff9800;
+    color: black;
+    font-weight: bold;
+}
+
+#structure-list {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 5px;
+    margin-bottom: 10px;
+}
+
+.structure-button {
+    padding: 8px;
+    background-color: #444;
+    color: white;
+    border: 1px solid #666;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 11px;
+    text-align: left;
+    border-radius: 3px;
+    transition: all 0.2s;
+}
+
+.structure-button:hover {
+    background-color: #555;
+    border-color: #777;
+}
+
+.structure-button.selected {
+    background-color: #ff9800;
+    color: black;
+    border-color: #ffb74d;
+    font-weight: bold;
+}
+
+.structure-info {
+    margin-top: 4px;
+    opacity: 0.8;
+}
+
+.structure-info small {
+    line-height: 1.2;
+}
+
+#structure-preview {
+    min-height: 50px;
+    padding: 8px;
+    background-color: #222;
+    border: 1px solid #555;
+    border-radius: 3px;
+}
+
+.preview-header h4 {
+    margin: 0 0 5px 0;
+    color: #ff9800;
+    font-size: 12px;
+}
+
+.preview-header p {
+    margin: 2px 0;
+    font-size: 10px;
+    color: #ccc;
+}
+
+.preview-instructions {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid #555;
+}
+
+.preview-instructions p {
+    margin: 2px 0;
+    font-size: 10px;
+    color: #aaa;
+    font-style: italic;
+}
+
+.no-structures {
+    color: #999;
+    font-style: italic;
+    text-align: center;
+    margin: 10px 0;
+}
+
+#structure-panel.active {
+    border-color: #ff9800;
+    background-color: #3a3a3a;
+}
+
+/* Improved coordinates display */
+#coords-text {
+    font-size: 11px;
+    line-height: 1.3;
+}
+
+/* Notifications */
+.notification {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    padding: 10px 15px;
+    border-radius: 5px;
+    color: white;
+    font-size: 12px;
+    z-index: 1000;
+    max-width: 300px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+}
+
+.notification.info {
+    background-color: #2196F3;
+}
+
+.notification.success {
+    background-color: #4CAF50;
+}
+
+.notification.error {
+    background-color: #F44336;
+}
+
+.notification.warning {
+    background-color: #FF9800;
+    color: black;
+}

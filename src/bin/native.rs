@@ -140,6 +140,8 @@ fn get_material_color(material: MaterialType, temp: f32) -> [u8; 3] {
         MaterialType::Gasoline => [255, 20, 147],
         MaterialType::Fuse => [139, 69, 19],
         MaterialType::Ash => [128, 128, 128],
+        MaterialType::Gold => [255, 215, 0],
+        MaterialType::Iron => [139, 139, 139],
         MaterialType::Generator => [255, 255, 0],
         MaterialType::Eraser => [0, 0, 0],
         MaterialType::Empty => [0, 0, 0],

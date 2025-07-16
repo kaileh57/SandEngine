@@ -1,5 +1,5 @@
 use crate::{Simulation, MaterialType, Particle};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 /// A game engine-style physics server for particle simulation
 pub struct PhysicsEngine {

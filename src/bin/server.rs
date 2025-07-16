@@ -29,6 +29,8 @@ pub enum ClientMessage {
     Clear,
     #[serde(rename = "get_particle")]
     GetParticle { x: usize, y: usize },
+    #[serde(rename = "place_structure")]
+    PlaceStructure { structure_name: String, x: usize, y: usize },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,6 +58,10 @@ pub enum ServerMessage {
     },
     #[serde(rename = "materials")]
     Materials { materials: Vec<MaterialInfo> },
+    #[serde(rename = "structures")]
+    Structures { structures: Vec<StructureInfo> },
+    #[serde(rename = "structure_placed")]
+    StructurePlaced { success: bool, structure_name: String, error: Option<String> },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -70,6 +76,21 @@ pub struct MaterialInfo {
     pub id: MaterialType,
     pub name: String,
     pub color: [u8; 3],
+    pub density: f32,
+    pub is_liquid: bool,
+    pub is_powder: bool,
+    pub is_rigid_solid: bool,
+    pub is_gas: bool,
+    pub is_stationary: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StructureInfo {
+    pub name: String,
+    pub width: usize,
+    pub height: usize,
+    pub particle_count: usize,
+    pub tile_entity_count: usize,
 }
 
 type Clients = Arc<Mutex<Vec<tokio::sync::mpsc::UnboundedSender<String>>>>;
@@ -117,11 +138,72 @@ async fn main() {
             )
         });
     
-    let js = warp::path("script.js")
+    // JavaScript modules
+    let js_websocket = warp::path!("js" / "websocket.js")
         .and(warp::get())
         .map(|| {
             warp::reply::with_header(
-                include_str!("../../frontend/script.js"),
+                include_str!("../../frontend/js/websocket.js"),
+                "content-type",
+                "application/javascript"
+            )
+        });
+    
+    let js_materials = warp::path!("js" / "materials.js")
+        .and(warp::get())
+        .map(|| {
+            warp::reply::with_header(
+                include_str!("../../frontend/js/materials.js"),
+                "content-type",
+                "application/javascript"
+            )
+        });
+    
+    let js_structures = warp::path!("js" / "structures.js")
+        .and(warp::get())
+        .map(|| {
+            warp::reply::with_header(
+                include_str!("../../frontend/js/structures.js"),
+                "content-type",
+                "application/javascript"
+            )
+        });
+    
+    let js_canvas = warp::path!("js" / "canvas.js")
+        .and(warp::get())
+        .map(|| {
+            warp::reply::with_header(
+                include_str!("../../frontend/js/canvas.js"),
+                "content-type",
+                "application/javascript"
+            )
+        });
+    
+    let js_brush = warp::path!("js" / "brush.js")
+        .and(warp::get())
+        .map(|| {
+            warp::reply::with_header(
+                include_str!("../../frontend/js/brush.js"),
+                "content-type",
+                "application/javascript"
+            )
+        });
+    
+    let js_ui = warp::path!("js" / "ui.js")
+        .and(warp::get())
+        .map(|| {
+            warp::reply::with_header(
+                include_str!("../../frontend/js/ui.js"),
+                "content-type",
+                "application/javascript"
+            )
+        });
+    
+    let js_app = warp::path!("js" / "app.js")
+        .and(warp::get())
+        .map(|| {
+            warp::reply::with_header(
+                include_str!("../../frontend/js/app.js"),
                 "content-type",
                 "application/javascript"
             )
@@ -152,7 +234,10 @@ async fn main() {
             ws.on_upgrade(move |websocket| handle_websocket(websocket, simulation, clients))
         });
     
-    let routes = static_files.or(css).or(js).or(favicon).or(websocket);
+    let routes = static_files.or(css)
+        .or(js_websocket).or(js_materials).or(js_structures)
+        .or(js_canvas).or(js_brush).or(js_ui).or(js_app)
+        .or(favicon).or(websocket);
     
     
     warp::serve(routes)
@@ -371,6 +456,8 @@ fn get_fast_material_color(material: MaterialType) -> [u8; 3] {
         MaterialType::Gasoline => [255, 20, 147],
         MaterialType::Fuse => [139, 69, 19],
         MaterialType::Ash => [128, 128, 128],
+        MaterialType::Gold => [255, 215, 0],
+        MaterialType::Iron => [139, 139, 139],
         MaterialType::Generator => [255, 255, 0],
         MaterialType::Eraser => [0, 0, 0],
         MaterialType::Empty => [0, 0, 0],
@@ -430,6 +517,15 @@ async fn handle_websocket(
     };
     
     if let Ok(json) = serde_json::to_string(&materials_message) {
+        let _ = tx.send(json);
+    }
+    
+    // Send structures list
+    let structures_message = ServerMessage::Structures {
+        structures: get_structures_info(),
+    };
+    
+    if let Ok(json) = serde_json::to_string(&structures_message) {
         let _ = tx.send(json);
     }
     
@@ -504,6 +600,40 @@ async fn handle_client_message(
             // For now, we'll just ignore this since we're broadcasting full state
             // In a more optimized version, we'd send individual particle info
         }
+        ClientMessage::PlaceStructure { structure_name, x, y } => {
+            let mut sim = simulation.lock().unwrap();
+            
+            // Try to place the structure
+            match sand_engine::Structure::get_by_name(&structure_name) {
+                Some(structure) => {
+                    // Convert coordinates to world coordinates
+                    let world_x = x as i64;
+                    let world_y = y as i64;
+                    
+                    // For now, we'll just add the structure particles to the simulation
+                    // In a more complete implementation, we'd use the chunk manager
+                    let mut particles_placed = 0;
+                    
+                    for particle_data in &structure.particles {
+                        let particle_x = (world_x + particle_data.x as i64) as usize;
+                        let particle_y = (world_y + particle_data.y as i64) as usize;
+                        
+                        // Check bounds
+                        if particle_x < sim.width && particle_y < sim.height {
+                            if sim.add_particle(particle_x, particle_y, particle_data.material, particle_data.temp) {
+                                particles_placed += 1;
+                            }
+                        }
+                    }
+                    
+                    println!("Placed structure '{}' at ({}, {}) with {} particles", 
+                             structure_name, x, y, particles_placed);
+                }
+                None => {
+                    println!("Unknown structure: {}", structure_name);
+                }
+            }
+        }
     }
 }
 
@@ -516,15 +646,35 @@ fn get_materials_info() -> Vec<MaterialInfo> {
         MaterialType::Oil, MaterialType::Acid, MaterialType::Coal, MaterialType::Gunpowder,
         MaterialType::Ice, MaterialType::Wood, MaterialType::Smoke, MaterialType::ToxicGas,
         MaterialType::Slime, MaterialType::Gasoline, MaterialType::Generator, MaterialType::Fuse,
-        MaterialType::Ash, MaterialType::Eraser,
+        MaterialType::Ash, MaterialType::Gold, MaterialType::Iron, MaterialType::Eraser,
     ];
     
     materials.iter().map(|&material_type| {
         let props = get_material_properties(material_type);
         MaterialInfo {
             id: material_type,
-            name: props.name,
+            name: props.name.clone(),
             color: props.base_color,
+            density: props.density,
+            is_liquid: props.is_liquid(material_type),
+            is_powder: props.is_powder(material_type),
+            is_rigid_solid: props.is_rigid_solid(material_type),
+            is_gas: props.is_gas(material_type),
+            is_stationary: props.is_stationary(material_type),
+        }
+    }).collect()
+}
+
+fn get_structures_info() -> Vec<StructureInfo> {
+    use sand_engine::Structure;
+    
+    Structure::get_all_structures().iter().map(|structure| {
+        StructureInfo {
+            name: structure.name.clone(),
+            width: structure.width,
+            height: structure.height,
+            particle_count: structure.particles.len(),
+            tile_entity_count: structure.tile_entities.len(),
         }
     }).collect()
 }

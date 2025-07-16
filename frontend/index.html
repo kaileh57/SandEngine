@@ -14,7 +14,7 @@
     <div id="right-panel">
         <div id="ui-info">
             <p id="material-text">Brush: Sand (Size: 3)</p>
-            <p>Click Palette/Use Mouse Wheel for Size</p>
+            <p>Controls: Mouse Wheel = Size, [C] = Clear, [S] = Structures, [ESC] = Cancel</p>
             <p>Painting replaces existing material.</p>
             <p id="coords-text">Coords: (0, 0)</p>
             <p id="connection-status">Status: Connecting...</p>
@@ -24,8 +24,17 @@
         <div id="palette">
             <!-- Buttons will be generated here by JavaScript from server data -->
         </div>
+        
+        <!-- Structure panel will be added here by JavaScript -->
     </div>
 
-    <script src="script.js"></script>
+    <!-- Load JavaScript modules -->
+    <script src="js/websocket.js"></script>
+    <script src="js/materials.js"></script>
+    <script src="js/structures.js"></script>
+    <script src="js/canvas.js"></script>
+    <script src="js/brush.js"></script>
+    <script src="js/ui.js"></script>
+    <script src="js/app.js"></script>
 </body>
 </html>
